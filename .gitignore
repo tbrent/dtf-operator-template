@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+*.env
+*.env.*
+config/project.env
+config/compose.env
+!config/*.env.example
+
+# Foundry and signer material
+cache/
+out/
+broadcast/
+artifacts/
+.gas-snapshot
+lcov.info
+keystores/
+foundry-keystores/
+*.keystore
+*.keystore.json
+UTC--*
+
+# Runtime state and generated artifacts
+data/
+.defender-state/
+proposer-data/
+defender-data/
+dtf-runtime/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,193 @@
+name: DTF Defender
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      once:
+        description: Run one scan and exit; set false to keep polling for run_hours
+        required: false
+        default: true
+        type: boolean
+      operator_image:
+        description: Optional runtime image override; default is DTF_OPERATOR_IMAGE or the upstream main image
+        required: false
+        default: ''
+        type: string
+      run_hours:
+        description: Optional RUN_HOURS override when once=false
+        required: false
+        default: ''
+        type: string
+      poll_seconds:
+        description: Optional POLL_SECONDS override when once=false
+        required: false
+        default: ''
+        type: string
+      proposal_from_block:
+        description: Optional ProposalCreated scan start block for targeted veto runs
+        required: false
+        default: ''
+        type: string
+      proposal_log_chunk_blocks:
+        description: Optional ProposalCreated log chunk size for RPC providers with small eth_getLogs limits
+        required: false
+        default: ''
+        type: string
+      proposal_log_chunk_delay_ms:
+        description: Optional delay between ProposalCreated log chunks, in milliseconds
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+  packages: read
+
+env:
+  DTF_OPERATOR_IMAGE: ${{ vars.DTF_OPERATOR_IMAGE || 'ghcr.io/reserve-protocol/dtf-operator:main' }}
+
+jobs:
+  defender:
+    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && vars.DTF_ACTIONS_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: dtf-defender-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore defender state
+        uses: actions/cache/restore@v4
+        with:
+          path: .defender-state
+          key: defender-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            defender-state-${{ github.repository_id }}-${{ github.ref_name }}-
+            defender-state-${{ github.repository_id }}-
+
+      - name: Resolve operator image
+        shell: bash
+        run: |
+          set -euo pipefail
+          operator_image="$OPERATOR_IMAGE_INPUT"
+          if [[ -n "$operator_image" ]]; then
+            if [[ ! "$operator_image" =~ ^[A-Za-z0-9._/@:-]+$ ]]; then
+              echo "operator_image contains unsupported characters" >&2
+              exit 2
+            fi
+            printf 'DTF_OPERATOR_IMAGE=%s\n' "$operator_image" >> "$GITHUB_ENV"
+          fi
+          echo "operator_image=${operator_image:-$DTF_OPERATOR_IMAGE}"
+        env:
+          OPERATOR_IMAGE_INPUT: ${{ inputs.operator_image }}
+
+      - name: GHCR login
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${GHCR_READ_TOKEN:-}" ]]; then
+            printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-$GITHUB_ACTOR}" --password-stdin
+          else
+            echo "GHCR_READ_TOKEN not set; pulling anonymously or with existing Docker credentials."
+          fi
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.actor }}
+
+      - name: Pull operator image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker pull "$DTF_OPERATOR_IMAGE"; then
+            exit 0
+          fi
+          echo "docker pull failed for $DTF_OPERATOR_IMAGE" >&2
+          echo "Set repository variable DTF_OPERATOR_IMAGE to a readable runtime image or configure GHCR_READ_TOKEN for private GHCR access." >&2
+          exit 2
+
+      - name: Verify operator image platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          platform="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{.Os}}/{{.Architecture}}')"
+          echo "operator_image=$DTF_OPERATOR_IMAGE"
+          echo "operator_image_platform=$platform"
+          if [[ "$platform" != "linux/amd64" ]]; then
+            echo "DTF_OPERATOR_IMAGE must resolve to linux/amd64 on GitHub ubuntu runners; got $platform" >&2
+            exit 2
+          fi
+
+      - name: Run defender
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .defender-state
+          docker run --rm \
+            -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
+            -e RUNTIME_DIR=/runtime \
+            -e OUT_ROOT=/data \
+            -e ONCE_INPUT \
+            -e RUN_HOURS_INPUT \
+            -e POLL_SECONDS_INPUT \
+            -e PROPOSAL_FROM_BLOCK_INPUT \
+            -e DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS \
+            -e DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS \
+            -e CODEX_AUTH_JSON_B64 \
+            -e PROPOSER_KEYSTORE_JSON_B64 \
+            -e PROPOSER_KEYSTORE_PASSWORD \
+            -e DEFENDER_KEYSTORE_JSON_B64 \
+            -e DEFENDER_KEYSTORE_PASSWORD \
+            -e DEFENDER_FOUNDRY_ACCOUNT \
+            -e RESEND_API_KEY \
+            -e DEFENDER_EMAIL_TO \
+            -e FOUNDRY_ACCOUNT \
+            -e RPC_URL \
+            -e MAINNET_RPC_URL \
+            -e BSC_RPC_URL \
+            -e BASE_RPC_URL \
+            -e SCOUT_ETL_API_KEY \
+            -e SCOUT_ETL_BASE_URL \
+            -e SCOUT_ETL_PROVIDER \
+            -e GITHUB_SERVER_URL \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_RUN_ID \
+            -e GITHUB_EVENT_NAME \
+            -v "$PWD/.github/dtf-operator.yml:/config/dtf-operator.yml:ro" \
+            -v "$PWD/.defender-state:/data" \
+            "$DTF_OPERATOR_IMAGE" \
+            node dist/cli/run-github-defender.js
+        env:
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+          PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
+          PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
+          DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
+          DEFENDER_KEYSTORE_PASSWORD: ${{ secrets.DEFENDER_KEYSTORE_PASSWORD }}
+          DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO }}
+          FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT || secrets.FOUNDRY_ACCOUNT }}
+          RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
+          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
+          SCOUT_ETL_API_KEY: ${{ secrets.SCOUT_ETL_API_KEY }}
+          SCOUT_ETL_BASE_URL: ${{ vars.SCOUT_ETL_BASE_URL }}
+          SCOUT_ETL_PROVIDER: ${{ vars.SCOUT_ETL_PROVIDER }}
+          ONCE_INPUT: ${{ inputs.once }}
+          RUN_HOURS_INPUT: ${{ inputs.run_hours }}
+          POLL_SECONDS_INPUT: ${{ inputs.poll_seconds }}
+          PROPOSAL_FROM_BLOCK_INPUT: ${{ inputs.proposal_from_block }}
+          DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
+          DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
+
+      - name: Save defender state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .defender-state
+          key: defender-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}

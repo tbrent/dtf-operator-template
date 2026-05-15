@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/setup-github-proposer [options]
+
+Uploads Codex auth and proposer signer secrets to a private operator fork.
+
+Required:
+  --keystore <path> or --generate-keystore-dir <dir>
+  --keystore-password-file <path>
+
+Options:
+  --codex-auth <path>              Defaults to ~/.codex/auth.json
+  --init-keystore-password         Create password file if missing
+  --force-keystore-password        Replace generated password file before creating a new keystore
+  --import-private-key-env <name>  Import 0x private key from env when generating
+  --foundry-account <name>         Defaults to dtf-proposer
+  --repo <owner/repo>              Target GitHub repository for gh secret set
+  -h, --help                       Show this help
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 2
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+random_password() {
+  od -An -N48 -tx1 /dev/urandom | tr -d ' \n'
+  printf '\n'
+}
+
+base64_file() {
+  if base64 --help 2>&1 | grep -q -- '-w'; then
+    base64 -w0 "$1"
+  else
+    base64 < "$1" | tr -d '\n'
+  fi
+}
+
+set_secret() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    gh secret set "$name" --repo "$repo" --body "$value"
+  else
+    gh secret set "$name" --body "$value"
+  fi
+}
+
+codex_auth="${HOME:-.}/.codex/auth.json"
+keystore=""
+keystore_password_file=""
+init_keystore_password=0
+force_keystore_password=0
+generate_keystore_dir=""
+import_private_key_env=""
+foundry_account="dtf-proposer"
+repo=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --codex-auth) codex_auth="${2:-}"; shift 2 ;;
+    --keystore) keystore="${2:-}"; shift 2 ;;
+    --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
+    --init-keystore-password) init_keystore_password=1; shift ;;
+    --force-keystore-password) force_keystore_password=1; shift ;;
+    --generate-keystore-dir) generate_keystore_dir="${2:-}"; shift 2 ;;
+    --import-private-key-env) import_private_key_env="${2:-}"; shift 2 ;;
+    --foundry-account) foundry_account="${2:-}"; shift 2 ;;
+    --repo) repo="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ -n "$keystore_password_file" ]] || die "--keystore-password-file is required"
+[[ -n "$keystore" || -n "$generate_keystore_dir" ]] || die "--keystore or --generate-keystore-dir is required"
+[[ -z "$keystore" || -z "$generate_keystore_dir" ]] || die "choose either --keystore or --generate-keystore-dir, not both"
+[[ -z "$import_private_key_env" || -n "$generate_keystore_dir" ]] || die "--import-private-key-env requires --generate-keystore-dir"
+[[ "$foundry_account" =~ ^[A-Za-z0-9._-]+$ ]] || die "--foundry-account must match [A-Za-z0-9._-]+"
+[[ "$foundry_account" != -* && "$foundry_account" != *..* && "$foundry_account" != */* ]] || die "--foundry-account must not contain path traversal"
+
+require_command cast
+require_command gh
+
+[[ -f "$codex_auth" ]] || die "Codex auth file not found: $codex_auth; run 'codex login' first"
+
+if [[ "$init_keystore_password" == 1 || "$force_keystore_password" == 1 ]]; then
+  if [[ -f "$keystore_password_file" && "$force_keystore_password" != 1 ]]; then
+    chmod 600 "$keystore_password_file"
+    echo "keystore_password_created=0"
+  else
+    [[ -z "$keystore" || "$force_keystore_password" != 1 ]] || die "refusing to replace the password for an existing keystore; create a new password file path instead"
+    mkdir -p "$(dirname "$keystore_password_file")"
+    tmp="$(dirname "$keystore_password_file")/.keystore-password.$$"
+    random_password > "$tmp"
+    chmod 600 "$tmp"
+    mv "$tmp" "$keystore_password_file"
+    echo "keystore_password_created=1"
+  fi
+fi
+
+[[ -f "$keystore_password_file" ]] || die "keystore password file not found: $keystore_password_file"
+
+if [[ -n "$generate_keystore_dir" ]]; then
+  mkdir -p "$generate_keystore_dir"
+  chmod 700 "$generate_keystore_dir"
+  password="$(tr -d '\r\n' < "$keystore_password_file")"
+  keystore="${generate_keystore_dir%/}/$foundry_account"
+  if [[ -e "$keystore" ]]; then
+    [[ -z "$import_private_key_env" ]] || die "keystore already exists, refusing to overwrite imported key: $keystore"
+    echo "keystore_created=0"
+  elif [[ -n "$import_private_key_env" ]]; then
+    private_key="$(printenv "$import_private_key_env" || true)"
+    [[ "$private_key" =~ ^0x[0-9a-fA-F]{64}$ ]] || die "$import_private_key_env must contain a 0x-prefixed private key"
+    CAST_UNSAFE_PASSWORD="$password" cast wallet import "$foundry_account" --keystore-dir "$generate_keystore_dir" --private-key "$private_key"
+    echo "keystore_created=1"
+  else
+    CAST_PASSWORD="$password" cast wallet new "$generate_keystore_dir" "$foundry_account"
+    echo "keystore_created=1"
+  fi
+fi
+
+[[ -f "$keystore" ]] || die "keystore not found: ${keystore:-<unset>}"
+
+address="$(cast wallet address --keystore "$keystore" --password-file "$keystore_password_file" | tr -d '\r\n')"
+[[ "$address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "failed to derive signer address from keystore"
+
+echo "Setting proposer GitHub Secrets${repo:+ for $repo}"
+set_secret CODEX_AUTH_JSON_B64 "$(base64_file "$codex_auth")"
+set_secret PROPOSER_KEYSTORE_JSON_B64 "$(base64_file "$keystore")"
+set_secret PROPOSER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
+set_secret FOUNDRY_ACCOUNT "$foundry_account"
+
+echo "configured=codex,live-proposer-signer"
+echo "foundry_account=$foundry_account"
+echo "signer_address=$address"
+echo "next_step=fund signer_address, grant optimistic proposer authority, set AUCTION_LAUNCHER_ADDRESS only for a signer with auction-launcher authority, then run dry-run and observe-only before live broadcast"

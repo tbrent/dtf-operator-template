@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: RESEND_API_KEY=<key> scripts/setup-github-defender --email <address> [options]
+
+Uploads Codex auth, email alert secrets, and optional defender veto signer secrets
+to a private operator fork.
+
+Options:
+  --email <address>                Required alert destination
+  --codex-auth <path>              Defaults to ~/.codex/auth.json
+  --keystore <path>                Existing Foundry keystore
+  --keystore-password-file <path>  Required with signer setup
+  --init-keystore-password         Create password file if missing when generating
+  --generate-keystore-dir <dir>    Generate a new defender keystore
+  --import-private-key-env <name>  Import 0x private key from env when generating
+  --foundry-account <name>         Defaults to dtf-defender
+  --repo <owner/repo>              Target GitHub repository for gh secret set
+  -h, --help                       Show this help
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 2
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+random_password() {
+  od -An -N48 -tx1 /dev/urandom | tr -d ' \n'
+  printf '\n'
+}
+
+base64_file() {
+  if base64 --help 2>&1 | grep -q -- '-w'; then
+    base64 -w0 "$1"
+  else
+    base64 < "$1" | tr -d '\n'
+  fi
+}
+
+set_secret() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    gh secret set "$name" --repo "$repo" --body "$value"
+  else
+    gh secret set "$name" --body "$value"
+  fi
+}
+
+email=""
+codex_auth="${HOME:-.}/.codex/auth.json"
+keystore=""
+keystore_password_file=""
+init_keystore_password=0
+generate_keystore_dir=""
+import_private_key_env=""
+foundry_account="dtf-defender"
+repo=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --email) email="${2:-}"; shift 2 ;;
+    --codex-auth) codex_auth="${2:-}"; shift 2 ;;
+    --keystore) keystore="${2:-}"; shift 2 ;;
+    --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
+    --init-keystore-password) init_keystore_password=1; shift ;;
+    --generate-keystore-dir) generate_keystore_dir="${2:-}"; shift 2 ;;
+    --import-private-key-env) import_private_key_env="${2:-}"; shift 2 ;;
+    --foundry-account) foundry_account="${2:-}"; shift 2 ;;
+    --repo) repo="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ -n "$email" ]] || die "--email is required"
+[[ -n "${RESEND_API_KEY:-}" ]] || die "RESEND_API_KEY must be set in env"
+[[ -z "$keystore" || -z "$generate_keystore_dir" ]] || die "choose either --keystore or --generate-keystore-dir, not both"
+[[ -z "$import_private_key_env" || -n "$generate_keystore_dir" ]] || die "--import-private-key-env requires --generate-keystore-dir"
+[[ "$foundry_account" =~ ^[A-Za-z0-9._-]+$ ]] || die "--foundry-account must match [A-Za-z0-9._-]+"
+[[ "$foundry_account" != -* && "$foundry_account" != *..* && "$foundry_account" != */* ]] || die "--foundry-account must not contain path traversal"
+
+require_command gh
+[[ -f "$codex_auth" ]] || die "Codex auth file not found: $codex_auth; run 'codex login' first"
+
+if [[ -n "$keystore" || -n "$generate_keystore_dir" ]]; then
+  require_command cast
+  [[ -n "$keystore_password_file" ]] || die "--keystore-password-file is required with signer setup"
+  if [[ "$init_keystore_password" == 1 && ! -f "$keystore_password_file" ]]; then
+    mkdir -p "$(dirname "$keystore_password_file")"
+    tmp="$(dirname "$keystore_password_file")/.keystore-password.$$"
+    random_password > "$tmp"
+    chmod 600 "$tmp"
+    mv "$tmp" "$keystore_password_file"
+    echo "keystore_password_created=1"
+  elif [[ "$init_keystore_password" == 1 ]]; then
+    chmod 600 "$keystore_password_file"
+    echo "keystore_password_created=0"
+  fi
+  [[ -f "$keystore_password_file" ]] || die "keystore password file not found: $keystore_password_file"
+fi
+
+if [[ -n "$keystore" ]]; then
+  [[ -f "$keystore" ]] || die "keystore not found: $keystore"
+fi
+
+if [[ -n "$generate_keystore_dir" ]]; then
+  mkdir -p "$generate_keystore_dir"
+  chmod 700 "$generate_keystore_dir"
+  password="$(tr -d '\r\n' < "$keystore_password_file")"
+  keystore="${generate_keystore_dir%/}/$foundry_account"
+  [[ ! -e "$keystore" ]] || die "keystore already exists, refusing to overwrite: $keystore"
+  if [[ -n "$import_private_key_env" ]]; then
+    private_key="$(printenv "$import_private_key_env" || true)"
+    [[ "$private_key" =~ ^0x[0-9a-fA-F]{64}$ ]] || die "$import_private_key_env must contain a 0x-prefixed private key"
+    CAST_UNSAFE_PASSWORD="$password" cast wallet import "$foundry_account" --keystore-dir "$generate_keystore_dir" --private-key "$private_key"
+  else
+    CAST_PASSWORD="$password" cast wallet new "$generate_keystore_dir" "$foundry_account"
+  fi
+fi
+
+echo "Setting defender GitHub Secrets${repo:+ for $repo}"
+set_secret CODEX_AUTH_JSON_B64 "$(base64_file "$codex_auth")"
+set_secret RESEND_API_KEY "$RESEND_API_KEY"
+set_secret DEFENDER_EMAIL_TO "$email"
+
+if [[ -n "$keystore" ]]; then
+  defender_address="$(cast wallet address --keystore "$keystore" --password-file "$keystore_password_file" | tr -d '\r\n')"
+  [[ "$defender_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "failed to derive defender signer address from keystore"
+  set_secret DEFENDER_KEYSTORE_JSON_B64 "$(base64_file "$keystore")"
+  set_secret DEFENDER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
+  set_secret DEFENDER_FOUNDRY_ACCOUNT "$foundry_account"
+  echo "configured=codex,email,onchain-veto"
+  echo "defender_signer=$defender_address"
+else
+  echo "configured=codex,email,alert-only"
+fi
+
+echo "next_step=edit .github/dtf-defender.yml and enable GitHub Actions"
