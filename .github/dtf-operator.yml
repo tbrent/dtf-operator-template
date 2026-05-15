@@ -25,7 +25,7 @@ proposer:
   optimisticProposerAddress: "0x655D755E02da56C469A8a5a8b0EFB80d033A199E"
 
   # Optional. Set only when this workflow should open auctions and run CowBot.
-  auctionLauncherAddress:
+  auctionLauncherAddress: "0x655D755E02da56C469A8a5a8b0EFB80d033A199E"
 
   # Optional. Leave blank for the runtime defaults.
   minOpenAuctionValueUsd:
