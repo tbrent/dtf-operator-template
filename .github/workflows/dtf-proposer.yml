@@ -1,0 +1,244 @@
+name: DTF Proposer
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Safe proposer mode to run
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - observe-only
+          - live-one-cycle
+      operator_image:
+        description: Optional runtime image override; default is DTF_OPERATOR_IMAGE or the upstream main image
+        required: false
+        default: ''
+        type: string
+      run_hours:
+        description: Optional RUN_HOURS override for manual testing
+        required: false
+        default: ''
+        type: string
+      min_open_auction_value_usd:
+        description: Optional minimum residual auction value to open, in USD
+        required: false
+        default: ''
+        type: string
+      cowbot_min_value_usd:
+        description: Optional CowBot minimum bid value, in USD
+        required: false
+        default: ''
+        type: string
+      confirm_live_broadcast:
+        description: Confirm manual live mode may broadcast proposer, execute, and openAuction transactions
+        required: false
+        default: false
+        type: boolean
+      resume_existing_rebalance:
+        description: Explicitly continue/reopen an already executed rebalance instead of starting fresh
+        required: false
+        default: false
+        type: boolean
+      allow_public_rpc:
+        description: Allow known public fallback RPCs for observe-only testing
+        required: false
+        default: false
+        type: boolean
+      rpc_url_override:
+        description: Optional RPC URL for this dispatch only; overrides configured RPC secrets
+        required: false
+        default: ''
+        type: string
+      bypass_proposer_defender_check:
+        description: Skip Codex proposer defender self-check for live modes only
+        required: false
+        default: false
+        type: boolean
+      confirm_bypass_proposer_defender_check:
+        description: Type BYPASS_PROPOSER_DEFENDER_CHECK to confirm bypassing the self-check
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  DTF_OPERATOR_IMAGE: ${{ vars.DTF_OPERATOR_IMAGE || 'ghcr.io/reserve-protocol/dtf-operator:main' }}
+
+jobs:
+  proposer:
+    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && vars.DTF_ACTIONS_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: dtf-proposer-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve operator image
+        shell: bash
+        run: |
+          set -euo pipefail
+          operator_image="$OPERATOR_IMAGE_INPUT"
+          if [[ -n "$operator_image" ]]; then
+            if [[ ! "$operator_image" =~ ^[A-Za-z0-9._/@:-]+$ ]]; then
+              echo "operator_image contains unsupported characters" >&2
+              exit 2
+            fi
+            printf 'DTF_OPERATOR_IMAGE=%s\n' "$operator_image" >> "$GITHUB_ENV"
+          fi
+          echo "operator_image=${operator_image:-$DTF_OPERATOR_IMAGE}"
+        env:
+          OPERATOR_IMAGE_INPUT: ${{ inputs.operator_image }}
+
+      - name: GHCR login
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${GHCR_READ_TOKEN:-}" ]]; then
+            printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-$GITHUB_ACTOR}" --password-stdin
+          else
+            echo "GHCR_READ_TOKEN not set; pulling anonymously or with existing Docker credentials."
+          fi
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.actor }}
+
+      - name: Pull operator image
+        id: pull_image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker pull "$DTF_OPERATOR_IMAGE"; then
+            exit 0
+          fi
+          echo "docker pull failed for $DTF_OPERATOR_IMAGE" >&2
+          echo "Set repository variable DTF_OPERATOR_IMAGE to a readable runtime image or configure GHCR_READ_TOKEN for private GHCR access." >&2
+          exit 2
+
+      - name: Verify operator image platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          platform="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{.Os}}/{{.Architecture}}')"
+          echo "operator_image=$DTF_OPERATOR_IMAGE"
+          echo "operator_image_platform=$platform"
+          if [[ "$platform" != "linux/amd64" ]]; then
+            echo "DTF_OPERATOR_IMAGE must resolve to linux/amd64 on GitHub ubuntu runners; got $platform" >&2
+            exit 2
+          fi
+
+      - name: Run proposer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proposer-data
+          docker run --rm \
+            -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
+            -e RUNTIME_DIR=/runtime \
+            -e OUT_ROOT=/data \
+            -e RPC_URL \
+            -e MAINNET_RPC_URL \
+            -e BSC_RPC_URL \
+            -e BASE_RPC_URL \
+            -e SCOUT_ETL_API_KEY \
+            -e SCOUT_ETL_BASE_URL \
+            -e SCOUT_ETL_PROVIDER \
+            -e ALLOW_SYNTHETIC_SIGNAL_STRATEGY_VAR \
+            -e CODEX_AUTH_JSON_B64 \
+            -e PROPOSER_KEYSTORE_JSON_B64 \
+            -e PROPOSER_KEYSTORE_PASSWORD \
+            -e FOUNDRY_ACCOUNT \
+            -e SIGNER_ADDRESS \
+            -e OPTIMISTIC_PROPOSER_ADDRESS \
+            -e AUCTION_LAUNCHER_KEYSTORE_JSON_B64 \
+            -e AUCTION_LAUNCHER_KEYSTORE_PASSWORD \
+            -e AUCTION_LAUNCHER_FOUNDRY_ACCOUNT \
+            -e MIN_SIGNER_BALANCE_WEI \
+            -e RUN_HOURS \
+            -e RUN_HOURS_INPUT \
+            -e POLL_SECONDS \
+            -e COWBOT_SECONDS \
+            -e COWBOT_MIN_VALUE_USD \
+            -e COWBOT_MIN_VALUE_USD_INPUT \
+            -e REBALANCE_CADENCE \
+            -e MIN_OPEN_AUCTION_VALUE_USD \
+            -e MIN_OPEN_AUCTION_VALUE_USD_INPUT \
+            -e PROPOSAL_FROM_BLOCK \
+            -e AUTO_REBALANCE_PROPOSAL_LOG_CHUNK_BLOCKS \
+            -e AUTO_REBALANCE_PROPOSAL_LOG_CHUNK_DELAY_MS \
+            -e REGISTER_BASE_URL \
+            -e REGISTER_ORIGIN_URL \
+            -e CHAIN_LABEL \
+            -e MODE_INPUT \
+            -e CONFIRM_LIVE_BROADCAST_INPUT \
+            -e ALLOW_PUBLIC_RPC_INPUT \
+            -e RESUME_EXISTING_REBALANCE_INPUT \
+            -e RPC_URL_OVERRIDE_INPUT \
+            -e BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
+            -e CONFIRM_BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
+            -e GITHUB_EVENT_NAME \
+            -e GITHUB_RUN_ID \
+            -e GITHUB_RUN_ATTEMPT \
+            -v "$PWD/.github/dtf-operator.yml:/config/dtf-operator.yml:ro" \
+            -v "$PWD/proposer-data:/data" \
+            "$DTF_OPERATOR_IMAGE" \
+            node dist/cli/run-github-proposer.js
+        env:
+          RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
+          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
+          SCOUT_ETL_API_KEY: ${{ secrets.SCOUT_ETL_API_KEY }}
+          SCOUT_ETL_BASE_URL: ${{ vars.SCOUT_ETL_BASE_URL }}
+          SCOUT_ETL_PROVIDER: ${{ vars.SCOUT_ETL_PROVIDER }}
+          ALLOW_SYNTHETIC_SIGNAL_STRATEGY_VAR: ${{ vars.ALLOW_SYNTHETIC_SIGNAL_STRATEGY }}
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+          PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
+          PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
+          FOUNDRY_ACCOUNT: ${{ secrets.FOUNDRY_ACCOUNT }}
+          SIGNER_ADDRESS: ${{ secrets.SIGNER_ADDRESS || vars.SIGNER_ADDRESS }}
+          AUCTION_LAUNCHER_KEYSTORE_JSON_B64: ${{ secrets.AUCTION_LAUNCHER_KEYSTORE_JSON_B64 }}
+          AUCTION_LAUNCHER_KEYSTORE_PASSWORD: ${{ secrets.AUCTION_LAUNCHER_KEYSTORE_PASSWORD }}
+          AUCTION_LAUNCHER_FOUNDRY_ACCOUNT: ${{ secrets.AUCTION_LAUNCHER_FOUNDRY_ACCOUNT }}
+          MIN_SIGNER_BALANCE_WEI: ${{ vars.MIN_SIGNER_BALANCE_WEI || '1' }}
+          MODE_INPUT: ${{ inputs.mode || '' }}
+          CONFIRM_LIVE_BROADCAST_INPUT: ${{ inputs.confirm_live_broadcast || false }}
+          RUN_HOURS_INPUT: ${{ inputs.run_hours }}
+          MIN_OPEN_AUCTION_VALUE_USD_INPUT: ${{ inputs.min_open_auction_value_usd }}
+          COWBOT_MIN_VALUE_USD_INPUT: ${{ inputs.cowbot_min_value_usd }}
+          ALLOW_PUBLIC_RPC_INPUT: ${{ inputs.allow_public_rpc || false }}
+          RESUME_EXISTING_REBALANCE_INPUT: ${{ inputs.resume_existing_rebalance || false }}
+          RPC_URL_OVERRIDE_INPUT: ${{ inputs.rpc_url_override }}
+          BYPASS_PROPOSER_DEFENDER_CHECK_INPUT: ${{ inputs.bypass_proposer_defender_check || false }}
+          CONFIRM_BYPASS_PROPOSER_DEFENDER_CHECK_INPUT: ${{ inputs.confirm_bypass_proposer_defender_check }}
+
+      - name: Summarize proposer artifacts
+        if: always() && steps.pull_image.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          touch "$GITHUB_STEP_SUMMARY"
+          docker run --rm \
+            -e GITHUB_STEP_SUMMARY=/github-step-summary \
+            -v "$PWD/proposer-data:/data:ro" \
+            -v "$GITHUB_STEP_SUMMARY:/github-step-summary" \
+            "$DTF_OPERATOR_IMAGE" \
+            node dist/cli/summarize-github-proposer-artifacts.js /data
+
+      - name: Upload proposer artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtf-proposer-${{ inputs.mode || github.event_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proposer-data
+          if-no-files-found: warn
