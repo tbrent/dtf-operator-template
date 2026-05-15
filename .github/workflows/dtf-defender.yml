@@ -138,8 +138,6 @@ jobs:
             -e BSC_RPC_URL \
             -e BASE_RPC_URL \
             -e SCOUT_ETL_API_KEY \
-            -e SCOUT_ETL_BASE_URL \
-            -e SCOUT_ETL_PROVIDER \
             -e GITHUB_SERVER_URL \
             -e GITHUB_REPOSITORY \
             -e GITHUB_RUN_ID \
@@ -163,8 +161,6 @@ jobs:
           BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
           BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
           SCOUT_ETL_API_KEY: ${{ secrets.SCOUT_ETL_API_KEY }}
-          SCOUT_ETL_BASE_URL: ${{ vars.SCOUT_ETL_BASE_URL }}
-          SCOUT_ETL_PROVIDER: ${{ vars.SCOUT_ETL_PROVIDER }}
           ONCE_INPUT: ${{ inputs.once }}
           RUN_HOURS_INPUT: ${{ inputs.run_hours }}
           POLL_SECONDS_INPUT: ${{ inputs.poll_seconds }}

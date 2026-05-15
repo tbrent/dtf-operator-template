@@ -74,8 +74,6 @@ Optional repository variables:
 
 ```text
 DTF_OPERATOR_IMAGE
-SCOUT_ETL_BASE_URL
-SCOUT_ETL_PROVIDER
 MIN_SIGNER_BALANCE_WEI
 ```
 

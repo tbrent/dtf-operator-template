@@ -7,10 +7,6 @@ version: 1
 folioAddress:
 chainId:
 
-marketData:
-  scoutEtlBaseUrl: https://scout-etl.reserve-337.workers.dev
-  scoutEtlProvider: messari
-
 proposer:
   # Scheduled workflow defaults. The workflow wakes up frequently, then the
   # proposer script targets auction starts at least this far apart.

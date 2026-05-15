@@ -138,8 +138,6 @@ jobs:
             -e BSC_RPC_URL \
             -e BASE_RPC_URL \
             -e SCOUT_ETL_API_KEY \
-            -e SCOUT_ETL_BASE_URL \
-            -e SCOUT_ETL_PROVIDER \
             -e ALLOW_SYNTHETIC_SIGNAL_STRATEGY_VAR \
             -e CODEX_AUTH_JSON_B64 \
             -e PROPOSER_KEYSTORE_JSON_B64 \
@@ -186,8 +184,6 @@ jobs:
           BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
           BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
           SCOUT_ETL_API_KEY: ${{ secrets.SCOUT_ETL_API_KEY }}
-          SCOUT_ETL_BASE_URL: ${{ vars.SCOUT_ETL_BASE_URL }}
-          SCOUT_ETL_PROVIDER: ${{ vars.SCOUT_ETL_PROVIDER }}
           ALLOW_SYNTHETIC_SIGNAL_STRATEGY_VAR: ${{ vars.ALLOW_SYNTHETIC_SIGNAL_STRATEGY }}
           CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
           PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
