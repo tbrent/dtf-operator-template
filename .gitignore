@@ -5,7 +5,6 @@
 *.env.*
 config/project.env
 config/compose.env
-!config/*.env.example
 
 # Foundry and signer material
 cache/

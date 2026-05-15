@@ -143,4 +143,4 @@ else
   echo "configured=codex,email,alert-only"
 fi
 
-echo "next_step=edit .github/dtf-defender.yml and enable GitHub Actions"
+echo "next_step=edit .github/dtf-operator.yml and enable GitHub Actions"

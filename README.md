@@ -2,7 +2,7 @@
 
 Forkable deployment template for running Reserve DTF proposer and defender automation from private GitHub Actions.
 
-Fork this repository into a private repository. The private fork owns the signer config, GitHub Secrets, GitHub Variables, schedules, artifacts, and defender state. Runtime code is not built in this repository; workflows consume the published image from `ghcr.io/reserve-protocol/dtf-operator` unless `DTF_OPERATOR_IMAGE` is overridden.
+Fork this repository into a private repository. The private fork owns the public operator config, GitHub Secrets, GitHub Variables, schedules, artifacts, and defender state for GitHub-hosted operation. Runtime code is not built in this repository; workflows consume the published image from `ghcr.io/reserve-protocol/dtf-operator` unless `DTF_OPERATOR_IMAGE` is overridden.
 
 Do not put operator secrets in public repositories. Do not open deployment-config PRs against `reserve-protocol/dtf-operator` or `reserve-protocol/dtf-operator-template`.
 
@@ -13,6 +13,8 @@ Do not put operator secrets in public repositories. Do not open deployment-confi
 - Public operator configuration lives in `.github/dtf-operator.yml`.
 - Secret material lives in GitHub Secrets or local Foundry keystores, never in the repository.
 - Both workflows run the same Docker runtime image by default.
+
+This template intentionally does not include Docker Compose files. Local Docker and self-hosted Compose operation are documented in `reserve-protocol/dtf-operator`, which owns the image contract and local runtime helpers.
 
 The mainline setup uses one operator signer for proposing, launching auctions, and Defender vetoes. That signer needs optimistic proposer authority, `AUCTION_LAUNCHER_ROLE`, chain gas, and enough optimistic voting weight to veto malicious optimistic proposals. Proposer, auction launcher, and Defender signers can diverge when an operator has a specific reason to split duties; set the override secrets documented below for those cases.
 
@@ -202,24 +204,6 @@ Use the same account by default. Override only the signers that must diverge:
 
 The setup helpers support existing keystores with `--keystore` and `--keystore-password-file`, or new keystores with `--generate-keystore-dir`. They can import a private key from an environment variable with `--import-private-key-env <ENV_VAR>`.
 
-## Local Compose
-
-Local Compose is optional. It is useful for long-running self-hosted operator deployments or smoke tests against the published image.
-
-1. Copy `config/compose.env.example` to a private path such as `/srv/YOUR_DTF_SLUG/compose.env`.
-2. Copy `config/project.env.example` to `/srv/YOUR_DTF_SLUG/config/project.env` and fill DTF, chain, RPC, Scout, and notification values.
-3. Put Codex OAuth `auth.json` at `/srv/YOUR_DTF_SLUG/codex/auth.json` when AI review/self-check will run.
-4. Put Foundry keystores and password files under `/srv/YOUR_DTF_SLUG/foundry-keystores`.
-5. Run Compose with `--env-file /srv/YOUR_DTF_SLUG/compose.env`.
-
-Example smoke command:
-
-```bash
-docker compose --env-file /srv/YOUR_DTF_SLUG/compose.env --profile defender up --abort-on-container-exit --exit-code-from defender defender
-```
-
-Keep local `LIVE`, `ALLOW_BROADCAST`, and `VETO_BROADCAST` at `0` until dry-run and observe-only behavior is understood.
-
 ## Operational Safety
 
 - Keep workflows off `pull_request` and never use `pull_request_target` for signer or Codex automation.
@@ -230,4 +214,8 @@ Keep local `LIVE`, `ALLOW_BROADCAST`, and `VETO_BROADCAST` at `0` until dry-run 
 
 ## Source Repository
 
-Runtime source, image builds, and tests live in `reserve-protocol/dtf-operator`. Open PRs there only for shared source, image, workflow, docs, or setup-template changes. Do not open per-operator config PRs upstream.
+Runtime source, image builds, tests, and local Docker Compose helpers live in `reserve-protocol/dtf-operator`. Open PRs there only for shared source, image, runtime-contract, or local-runner changes. Do not open per-operator config PRs upstream.
+
+## TODO
+
+- Make this template repository public once the runtime image access policy, setup docs, and fork-safety messaging are ready for external operators.
