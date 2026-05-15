@@ -40,7 +40,7 @@ Default runtime image:
 ghcr.io/reserve-protocol/dtf-operator:main
 ```
 
-Set repository variable `DTF_OPERATOR_IMAGE` to pin a specific tag, preferably a `sha-*` or `v*` tag. If the GHCR image is private, set `GHCR_READ_TOKEN` and optionally `GHCR_USERNAME` so the workflows can pull it. Deployment workflows do not build from source and do not use `SDK_READ_TOKEN`.
+Set repository variable `DTF_OPERATOR_IMAGE` to pin a specific tag, preferably a `sha-*` or `v*` tag. The default GHCR package is public, so the workflows pull it without GHCR credentials. Deployment workflows do not build from source and do not use `SDK_READ_TOKEN`.
 
 ## Supported Chains
 
@@ -76,14 +76,7 @@ Optional repository variables:
 DTF_OPERATOR_IMAGE
 SCOUT_ETL_BASE_URL
 SCOUT_ETL_PROVIDER
-GHCR_USERNAME
 MIN_SIGNER_BALANCE_WEI
-```
-
-Optional image access secret:
-
-```text
-GHCR_READ_TOKEN
 ```
 
 Required for live proposer broadcasts:
@@ -224,4 +217,4 @@ Runtime source, image builds, tests, and local Docker Compose helpers live in `r
 
 ## TODO
 
-- Make this template repository public once the runtime image access policy, setup docs, and fork-safety messaging are ready for external operators.
+- Make this template repository public once setup docs and fork-safety messaging are ready for external operators.

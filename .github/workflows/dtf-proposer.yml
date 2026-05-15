@@ -100,19 +100,6 @@ jobs:
         env:
           OPERATOR_IMAGE_INPUT: ${{ inputs.operator_image }}
 
-      - name: GHCR login
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${GHCR_READ_TOKEN:-}" ]]; then
-            printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-$GITHUB_ACTOR}" --password-stdin
-          else
-            echo "GHCR_READ_TOKEN not set; pulling anonymously or with existing Docker credentials."
-          fi
-        env:
-          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
-          GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.actor }}
-
       - name: Pull operator image
         id: pull_image
         shell: bash
@@ -122,7 +109,7 @@ jobs:
             exit 0
           fi
           echo "docker pull failed for $DTF_OPERATOR_IMAGE" >&2
-          echo "Set repository variable DTF_OPERATOR_IMAGE to a readable runtime image or configure GHCR_READ_TOKEN for private GHCR access." >&2
+          echo "The default runtime image is public. If you overrode DTF_OPERATOR_IMAGE, set it to a readable linux/amd64 image." >&2
           exit 2
 
       - name: Verify operator image platform
