@@ -86,19 +86,6 @@ jobs:
         env:
           OPERATOR_IMAGE_INPUT: ${{ inputs.operator_image }}
 
-      - name: GHCR login
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${GHCR_READ_TOKEN:-}" ]]; then
-            printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-$GITHUB_ACTOR}" --password-stdin
-          else
-            echo "GHCR_READ_TOKEN not set; pulling anonymously or with existing Docker credentials."
-          fi
-        env:
-          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
-          GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.actor }}
-
       - name: Pull operator image
         shell: bash
         run: |
@@ -107,7 +94,7 @@ jobs:
             exit 0
           fi
           echo "docker pull failed for $DTF_OPERATOR_IMAGE" >&2
-          echo "Set repository variable DTF_OPERATOR_IMAGE to a readable runtime image or configure GHCR_READ_TOKEN for private GHCR access." >&2
+          echo "The default runtime image is public. If you overrode DTF_OPERATOR_IMAGE, set it to a readable linux/amd64 image." >&2
           exit 2
 
       - name: Verify operator image platform
@@ -150,9 +137,6 @@ jobs:
             -e MAINNET_RPC_URL \
             -e BSC_RPC_URL \
             -e BASE_RPC_URL \
-            -e SCOUT_ETL_API_KEY \
-            -e SCOUT_ETL_BASE_URL \
-            -e SCOUT_ETL_PROVIDER \
             -e GITHUB_SERVER_URL \
             -e GITHUB_REPOSITORY \
             -e GITHUB_RUN_ID \
@@ -175,9 +159,6 @@ jobs:
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
           BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
           BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
-          SCOUT_ETL_API_KEY: ${{ secrets.SCOUT_ETL_API_KEY }}
-          SCOUT_ETL_BASE_URL: ${{ vars.SCOUT_ETL_BASE_URL }}
-          SCOUT_ETL_PROVIDER: ${{ vars.SCOUT_ETL_PROVIDER }}
           ONCE_INPUT: ${{ inputs.once }}
           RUN_HOURS_INPUT: ${{ inputs.run_hours }}
           POLL_SECONDS_INPUT: ${{ inputs.poll_seconds }}
