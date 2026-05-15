@@ -59,10 +59,11 @@ Set `folioAddress` and `chainId` in `.github/dtf-operator.yml` for the DTF you o
 Common runtime inputs:
 
 ```text
-SCOUT_ETL_API_KEY
 RPC_URL or BASE_RPC_URL / MAINNET_RPC_URL / BSC_RPC_URL
 CODEX_AUTH_JSON_B64
 ```
+
+Scout ETL endpoint, provider, and short-term API key access are owned by the published runtime image. Forks do not configure Scout ETL.
 
 Required repository variable to enable workflows:
 
