@@ -118,6 +118,7 @@ jobs:
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
             -e RUNTIME_DIR=/runtime \
             -e OUT_ROOT=/data \
+            -e DEFAULT_PROJECT_ENV_FILE=/opt/dtf-operator/default-project.env \
             -e ONCE_INPUT \
             -e RUN_HOURS_INPUT \
             -e POLL_SECONDS_INPUT \

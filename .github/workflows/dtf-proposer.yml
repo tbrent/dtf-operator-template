@@ -133,6 +133,7 @@ jobs:
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
             -e RUNTIME_DIR=/runtime \
             -e OUT_ROOT=/data \
+            -e DEFAULT_PROJECT_ENV_FILE=/opt/dtf-operator/default-project.env \
             -e RPC_URL \
             -e MAINNET_RPC_URL \
             -e BSC_RPC_URL \
