@@ -133,13 +133,19 @@ proposer:
   rebalanceCadence: 30d
   optimisticProposerAddress: "0xGeneratedProposerSignerAddress"
   auctionLauncherAddress:
+  proposalScan:
+    fromBlock: 12345678
 defender:
   frequencyMinutes: 30
+  proposalScan:
+    fromBlock: 12345678
   requireAiApproval: true
   alertOnlyWithoutSigner: true
 ```
 
 `folioAddress` and `chainId` must identify the DTF/Folio this fork operates. `proposer.rebalanceCadence` is the deterministic auction cadence. For example, `30d` means the next rebalance auction should start at least 30 days after the first auction from the latest successful rebalance.
+
+Set both `proposer.proposalScan.fromBlock` and `defender.proposalScan.fromBlock` before enabling scheduled runs. Use a chain block before this DTF/Folio's first relevant governance proposal so first-run log scans are bounded and RPC providers do not need to scan from genesis. The value can be the same for proposer and defender unless you have a reason to use different scan windows.
 
 `proposer.optimisticProposerAddress` is the generated proposer signer address used for dry-run optimistic proposal simulation. In the mainline setup, set `proposer.auctionLauncherAddress` to the same address after granting that signer `AUCTION_LAUNCHER_ROLE`.
 

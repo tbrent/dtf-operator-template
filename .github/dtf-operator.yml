@@ -32,7 +32,9 @@ proposer:
   cowbotMinValueUsd:
   allowSyntheticSignalStrategy: false
 
-  # Optional scan tuning for RPC providers that cannot handle large log ranges.
+  # Required for efficient first runs. Set fromBlock to a block before this
+  # DTF/Folio's first relevant governance proposal, then tune chunking only if
+  # your RPC provider cannot handle large eth_getLogs ranges.
   proposalScan:
     fromBlock:
     logChunkBlocks:
@@ -52,7 +54,9 @@ defender:
   pollSeconds: 20
   waitActiveSeconds: 120
 
-  # Optional scan tuning for RPC providers that cannot handle large log ranges.
+  # Required for efficient first runs. Set fromBlock to a block before this
+  # DTF/Folio's first relevant governance proposal, then tune chunking only if
+  # your RPC provider cannot handle large eth_getLogs ranges.
   proposalScan:
     fromBlock:
     logChunkBlocks:
