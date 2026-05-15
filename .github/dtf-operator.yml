@@ -54,7 +54,7 @@ defender:
 
   # Optional scan tuning for RPC providers that cannot handle large log ranges.
   proposalScan:
-    fromBlock:
+    fromBlock: 46032943
     logChunkBlocks:
     logChunkDelayMs:
 
