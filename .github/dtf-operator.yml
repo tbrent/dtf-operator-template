@@ -4,8 +4,8 @@
 version: 1
 
 # Required. Set both values for the DTF/Folio this fork operates.
-folioAddress:
-chainId:
+folioAddress: "0xd45e4170834a803D084b2bB145c9ad08f3BdD651"
+chainId: 8453
 
 marketData:
   scoutEtlBaseUrl: https://scout-etl.reserve-337.workers.dev
@@ -22,10 +22,10 @@ proposer:
   # Address used only for dry-run optimistic proposal simulation. This must be
   # an address with available optimistic proposal throttle charges on the
   # trading governor. Set this to the signer address printed by scripts/setup-github-proposer.
-  optimisticProposerAddress:
+  optimisticProposerAddress: "0x655D755E02da56C469A8a5a8b0EFB80d033A199E"
 
   # Optional. Set only when this workflow should open auctions and run CowBot.
-  auctionLauncherAddress:
+  auctionLauncherAddress: "0x655D755E02da56C469A8a5a8b0EFB80d033A199E"
 
   # Optional. Leave blank for the runtime defaults.
   minOpenAuctionValueUsd:
@@ -60,7 +60,7 @@ defender:
 
   notifications:
     # May also be supplied through DEFENDER_EMAIL_TO GitHub Secret.
-    emailTo:
+    emailTo: taylor.brent@reserve.org
 
   # Approvals always require Codex judgement. Deterministic hard vetoes can veto
   # before AI when they are low false-positive checks.
