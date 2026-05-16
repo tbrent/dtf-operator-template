@@ -26,7 +26,7 @@ proposer:
   # Optional. Leave blank for the runtime defaults.
   minOpenAuctionValueUsd:
   cowbotMinValueUsd:
-  allowSyntheticSignalStrategy: false
+  allowSyntheticSignalStrategy: true
 
   # Required for efficient first runs. Set fromBlock to a block before this
   # DTF/Folio's first relevant governance proposal, then tune chunking only if
