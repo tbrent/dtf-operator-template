@@ -11,7 +11,7 @@ on:
         default: true
         type: boolean
       operator_image:
-        description: Optional runtime image override; default is DTF_OPERATOR_IMAGE or the upstream main image
+        description: Optional runtime image override; default is DTF_OPERATOR_IMAGE or the upstream stable image
         required: false
         default: ''
         type: string
@@ -47,7 +47,7 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ${{ vars.DTF_OPERATOR_IMAGE || 'ghcr.io/reserve-protocol/dtf-operator:main' }}
+  DTF_OPERATOR_IMAGE: ${{ vars.DTF_OPERATOR_IMAGE || 'ghcr.io/reserve-protocol/dtf-operator:stable' }}
 
 jobs:
   defender:
