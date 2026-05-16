@@ -103,6 +103,12 @@ RESEND_API_KEY
 DEFENDER_EMAIL_TO
 ```
 
+Optional defender email sender override:
+
+```text
+DEFENDER_EMAIL_FROM
+```
+
 Optional separate defender veto signer:
 
 ```text
@@ -171,6 +177,7 @@ Upload alert-only secrets:
 ```bash
 RESEND_API_KEY=<key> scripts/setup-github-defender \
   --email alerts@example.com \
+  --from-email defender@example.com \
   --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
 ```
 

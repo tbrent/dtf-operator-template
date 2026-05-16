@@ -10,6 +10,7 @@ to a private operator fork.
 
 Options:
   --email <address>                Required alert destination
+  --from-email <address>           Optional sender; defaults in runtime when unset
   --codex-auth <path>              Defaults to ~/.codex/auth.json
   --keystore <path>                Existing Foundry keystore
   --keystore-password-file <path>  Required with signer setup
@@ -55,6 +56,7 @@ set_secret() {
 }
 
 email=""
+from_email="${DEFENDER_EMAIL_FROM:-}"
 codex_auth="${HOME:-.}/.codex/auth.json"
 keystore=""
 keystore_password_file=""
@@ -67,6 +69,7 @@ repo=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --email) email="${2:-}"; shift 2 ;;
+    --from-email) from_email="${2:-}"; shift 2 ;;
     --codex-auth) codex_auth="${2:-}"; shift 2 ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
@@ -130,6 +133,9 @@ echo "Setting defender GitHub Secrets${repo:+ for $repo}"
 set_secret CODEX_AUTH_JSON_B64 "$(base64_file "$codex_auth")"
 set_secret RESEND_API_KEY "$RESEND_API_KEY"
 set_secret DEFENDER_EMAIL_TO "$email"
+if [[ -n "$from_email" ]]; then
+  set_secret DEFENDER_EMAIL_FROM "$from_email"
+fi
 
 if [[ -n "$keystore" ]]; then
   defender_address="$(cast wallet address --keystore "$keystore" --password-file "$keystore_password_file" | tr -d '\r\n')"

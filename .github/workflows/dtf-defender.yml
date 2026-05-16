@@ -132,6 +132,7 @@ jobs:
             -e DEFENDER_FOUNDRY_ACCOUNT \
             -e RESEND_API_KEY \
             -e DEFENDER_EMAIL_TO \
+            -e DEFENDER_EMAIL_FROM \
             -e FOUNDRY_ACCOUNT \
             -e RPC_URL \
             -e MAINNET_RPC_URL \
@@ -154,6 +155,7 @@ jobs:
           DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO }}
+          DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
           FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT || secrets.FOUNDRY_ACCOUNT }}
           RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
