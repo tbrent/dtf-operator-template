@@ -37,10 +37,12 @@ The scheduled jobs are guarded by `DTF_ACTIONS_ENABLED=true` and skip in `reserv
 Default runtime image:
 
 ```text
-ghcr.io/reserve-protocol/dtf-operator:main
+ghcr.io/reserve-protocol/dtf-operator:stable
 ```
 
-Set repository variable `DTF_OPERATOR_IMAGE` to pin a specific tag, preferably a `sha-*` or `v*` tag. The default GHCR package is public, so the workflows pull it without GHCR credentials. Deployment workflows do not build from source and do not use `SDK_READ_TOKEN`.
+`stable` is the default branch-based channel for operator forks. It can receive background bugfix rollouts without moving every fork to the source repository's `main` integration channel.
+
+Set repository variable `DTF_OPERATOR_IMAGE` to choose a different channel or pin a specific image. Use `ghcr.io/reserve-protocol/dtf-operator:main` for integration testing, or a `sha-*` or `v*` tag when a fork needs immutable runtime selection. The default GHCR package is public, so the workflows pull it without GHCR credentials. Deployment workflows do not build from source and do not use `SDK_READ_TOKEN`.
 
 ## Supported Chains
 
@@ -101,6 +103,12 @@ Required for defender alert-only mode:
 ```text
 RESEND_API_KEY
 DEFENDER_EMAIL_TO
+```
+
+Optional defender email sender override:
+
+```text
+DEFENDER_EMAIL_FROM
 ```
 
 Optional separate defender veto signer:
@@ -171,6 +179,7 @@ Upload alert-only secrets:
 ```bash
 RESEND_API_KEY=<key> scripts/setup-github-defender \
   --email alerts@example.com \
+  --from-email defender@example.com \
   --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
 ```
 
@@ -207,7 +216,7 @@ The setup helpers support existing keystores with `--keystore` and `--keystore-p
 - Keep workflows off `pull_request` and never use `pull_request_target` for signer or Codex automation.
 - Run scheduled and manual workflows only from the fork default branch after GitHub Actions is enabled.
 - Use `DTF_ACTIONS_ENABLED=true` as the final arming switch after config and Secrets are ready.
-- Pin `DTF_OPERATOR_IMAGE` for production deployments instead of floating on `main`.
+- Leave `DTF_OPERATOR_IMAGE` unset to follow the default `stable` operator channel, or pin it to a `sha-*` or `v*` tag when production needs explicit runtime changes only.
 - Keep this repository private because workflow artifacts and config can reveal operational details even when Secrets are not committed.
 
 ## Source Repository
