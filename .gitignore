@@ -22,6 +22,7 @@ UTC--*
 # Runtime state and generated artifacts
 data/
 .defender-state/
+.codex-auth-cache/
 proposer-data/
 defender-data/
 dtf-runtime/

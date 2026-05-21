@@ -20,6 +20,7 @@ Options:
   --foundry-account <name>         Defaults to dtf-defender
   --repo <owner/repo>              Target GitHub repository for gh secret set
   -h, --help                       Show this help
+
 EOF
 }
 

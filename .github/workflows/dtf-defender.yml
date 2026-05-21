@@ -54,7 +54,7 @@ jobs:
     if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && vars.DTF_ACTIONS_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     concurrency:
-      group: dtf-defender-${{ github.repository }}-${{ github.ref }}
+      group: dtf-codex-auth-${{ github.repository_id }}
       cancel-in-progress: false
 
     steps:
@@ -69,6 +69,44 @@ jobs:
           restore-keys: |
             defender-state-${{ github.repository_id }}-${{ github.ref_name }}-
             defender-state-${{ github.repository_id }}-
+
+      - name: Restore operator alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: .operator-alert-state
+          key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-
+            operator-alert-state-${{ github.repository_id }}-
+
+      - name: Restore Codex auth cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .codex-auth-cache/auth.json.enc
+          key: codex-auth-cache-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            codex-auth-cache-${{ github.repository_id }}-
+
+      - name: Decrypt Codex auth cache
+        shell: bash
+        env:
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-auth-cache
+          if [[ ! -f .codex-auth-cache/auth.json.enc ]]; then
+            echo "codex_auth_cache=miss"
+            exit 0
+          fi
+          if scripts/codex-auth-cache decrypt .codex-auth-cache/auth.json.enc .codex-auth-cache/auth.json; then
+            echo "codex_auth_cache=restored"
+          elif [[ -n "${CODEX_AUTH_JSON_B64:-}" ]]; then
+            echo "codex_auth_cache=decrypt_failed_bootstrap"
+            rm -f .codex-auth-cache/auth.json .codex-auth-cache/auth.json.enc
+          else
+            echo "failed to decrypt cached Codex auth and CODEX_AUTH_JSON_B64 is unavailable" >&2
+            exit 2
+          fi
 
       - name: Resolve operator image
         shell: bash
@@ -113,12 +151,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .defender-state
+          mkdir -p .defender-state .operator-alert-state .codex-auth-cache
+          if [[ -f .codex-auth-cache/auth.json ]]; then
+            CODEX_AUTH_JSON_B64="$(base64 -w0 .codex-auth-cache/auth.json)"
+            export CODEX_AUTH_JSON_B64
+            echo "codex_auth_source=cache"
+          elif [[ -n "${CODEX_AUTH_JSON_B64:-}" ]]; then
+            echo "codex_auth_source=seed_secret"
+          else
+            echo "codex_auth_source=unset"
+          fi
           docker run --rm \
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
             -e RUNTIME_DIR=/runtime \
             -e OUT_ROOT=/data \
             -e DEFAULT_PROJECT_ENV_FILE=/opt/dtf-operator/default-project.env \
+            -e CODEX_ALERT_STATE_DIR=/alert-state \
             -e ONCE_INPUT \
             -e RUN_HOURS_INPUT \
             -e POLL_SECONDS_INPUT \
@@ -126,6 +174,7 @@ jobs:
             -e DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS \
             -e CODEX_AUTH_JSON_B64 \
+            -e CODEX_AUTH_ALERT_COOLDOWN_SECONDS \
             -e PROPOSER_KEYSTORE_JSON_B64 \
             -e PROPOSER_KEYSTORE_PASSWORD \
             -e DEFENDER_KEYSTORE_JSON_B64 \
@@ -145,10 +194,13 @@ jobs:
             -e GITHUB_EVENT_NAME \
             -v "$PWD/.github/dtf-operator.yml:/config/dtf-operator.yml:ro" \
             -v "$PWD/.defender-state:/data" \
+            -v "$PWD/.operator-alert-state:/alert-state" \
+            -v "$PWD/.codex-auth-cache:/runtime/codex" \
             "$DTF_OPERATOR_IMAGE" \
             node dist/cli/run-github-defender.js
         env:
           CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+          CODEX_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.CODEX_AUTH_ALERT_COOLDOWN_SECONDS }}
           PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
           PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
           DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
@@ -169,9 +221,66 @@ jobs:
           DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
           DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
 
+      - name: Normalize Codex auth cache ownership
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d .codex-auth-cache ]]; then
+            if command -v sudo >/dev/null 2>&1; then
+              sudo chown -R "$(id -u):$(id -g)" .codex-auth-cache
+            else
+              chown -R "$(id -u):$(id -g)" .codex-auth-cache
+            fi
+          fi
+
+      - name: Encrypt Codex auth cache
+        id: encrypt_codex_auth_cache
+        if: always()
+        shell: bash
+        env:
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p .codex-auth-cache
+          if [[ ! -s .codex-auth-cache/auth.json ]]; then
+            echo "cache_ready=false" >> "$GITHUB_OUTPUT"
+            echo "codex_auth_cache=empty"
+            exit 0
+          fi
+          if [[ -z "${CODEX_AUTH_JSON_B64:-}" ]]; then
+            echo "CODEX_AUTH_JSON_B64 secret is required to preserve refreshed Codex auth" >&2
+            exit 2
+          fi
+          scripts/codex-auth-cache encrypt .codex-auth-cache/auth.json .codex-auth-cache/auth.json.enc
+          rm -f .codex-auth-cache/auth.json
+          echo "cache_ready=true" >> "$GITHUB_OUTPUT"
+          echo "codex_auth_cache=encrypted"
+
+      - name: Remove plaintext Codex auth cache
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .codex-auth-cache/auth.json
+
+      - name: Save Codex auth cache
+        if: always() && steps.encrypt_codex_auth_cache.outputs.cache_ready == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .codex-auth-cache/auth.json.enc
+          key: codex-auth-cache-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Save defender state
         if: always()
         uses: actions/cache/save@v4
         with:
           path: .defender-state
           key: defender-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save operator alert state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .operator-alert-state
+          key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}

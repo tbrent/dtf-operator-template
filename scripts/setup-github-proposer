@@ -19,6 +19,7 @@ Options:
   --foundry-account <name>         Defaults to dtf-proposer
   --repo <owner/repo>              Target GitHub repository for gh secret set
   -h, --help                       Show this help
+
 EOF
 }
 
