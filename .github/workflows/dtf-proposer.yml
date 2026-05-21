@@ -98,22 +98,17 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .codex-auth-cache/auth.json.enc
-          key: codex-auth-cache-${{ github.repository_id }}-${{ vars.CODEX_AUTH_CACHE_VERSION || 'v1' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: codex-auth-cache-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            codex-auth-cache-${{ github.repository_id }}-${{ vars.CODEX_AUTH_CACHE_VERSION || 'v1' }}-
+            codex-auth-cache-${{ github.repository_id }}-
 
       - name: Decrypt Codex auth cache
         shell: bash
         env:
-          CODEX_AUTH_CACHE_KEY: ${{ secrets.CODEX_AUTH_CACHE_KEY }}
           CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
         run: |
           set -euo pipefail
           mkdir -p .codex-auth-cache
-          if [[ -n "${CODEX_AUTH_JSON_B64:-}" && -z "${CODEX_AUTH_CACHE_KEY:-}" ]]; then
-            echo "CODEX_AUTH_CACHE_KEY secret is required when CODEX_AUTH_JSON_B64 is configured" >&2
-            exit 2
-          fi
           if [[ ! -f .codex-auth-cache/auth.json.enc ]]; then
             echo "codex_auth_cache=miss"
             exit 0
@@ -287,7 +282,7 @@ jobs:
         if: always()
         shell: bash
         env:
-          CODEX_AUTH_CACHE_KEY: ${{ secrets.CODEX_AUTH_CACHE_KEY }}
+          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
         run: |
           set -euo pipefail
           mkdir -p .codex-auth-cache
@@ -296,8 +291,8 @@ jobs:
             echo "codex_auth_cache=empty"
             exit 0
           fi
-          if [[ -z "${CODEX_AUTH_CACHE_KEY:-}" ]]; then
-            echo "CODEX_AUTH_CACHE_KEY secret is required to preserve refreshed Codex auth" >&2
+          if [[ -z "${CODEX_AUTH_JSON_B64:-}" ]]; then
+            echo "CODEX_AUTH_JSON_B64 secret is required to preserve refreshed Codex auth" >&2
             exit 2
           fi
           scripts/codex-auth-cache encrypt .codex-auth-cache/auth.json .codex-auth-cache/auth.json.enc
@@ -317,7 +312,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .codex-auth-cache/auth.json.enc
-          key: codex-auth-cache-${{ github.repository_id }}-${{ vars.CODEX_AUTH_CACHE_VERSION || 'v1' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: codex-auth-cache-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Summarize proposer artifacts
         if: always() && steps.pull_image.outcome == 'success'

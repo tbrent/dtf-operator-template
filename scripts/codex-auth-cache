@@ -9,12 +9,12 @@ const CIPHER = 'aes-256-gcm'
 const KDF = 'scrypt'
 
 function usage() {
-  console.error('Usage: CODEX_AUTH_CACHE_KEY=<secret> scripts/codex-auth-cache encrypt|decrypt <input> <output>')
+  console.error('Usage: CODEX_AUTH_JSON_B64=<secret> scripts/codex-auth-cache encrypt|decrypt <input> <output>')
 }
 
 function requireKey() {
-  const key = (process.env.CODEX_AUTH_CACHE_KEY || '').trim()
-  if (!key) throw new Error('CODEX_AUTH_CACHE_KEY is required')
+  const key = (process.env.CODEX_AUTH_JSON_B64 || '').trim()
+  if (!key) throw new Error('CODEX_AUTH_JSON_B64 is required')
   return key
 }
 
