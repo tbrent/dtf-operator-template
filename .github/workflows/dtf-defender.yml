@@ -54,7 +54,7 @@ jobs:
     if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && vars.DTF_ACTIONS_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     concurrency:
-      group: dtf-defender-${{ github.repository }}-${{ github.ref }}
+      group: dtf-codex-auth-${{ github.repository_id }}
       cancel-in-progress: false
 
     steps:

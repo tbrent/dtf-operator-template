@@ -217,6 +217,10 @@ The setup helpers support existing keystores with `--keystore` and `--keystore-p
 - Run scheduled and manual workflows only from the fork default branch after GitHub Actions is enabled.
 - Use `DTF_ACTIONS_ENABLED=true` as the final arming switch after config and Secrets are ready.
 - Leave `DTF_OPERATOR_IMAGE` unset to follow the default `stable` operator channel, or pin it to a `sha-*` or `v*` tag when production needs explicit runtime changes only.
+- Proposer and Defender share one repo-wide GitHub Actions concurrency lock, `dtf-codex-auth-${{ github.repository_id }}`. If either workflow is running, the other waits instead of running with the same Codex OAuth credentials.
+- GitHub Actions keeps at most one pending run for that shared lock. If scheduled runs pile up while another Proposer or Defender run is active, older pending runs can be replaced by newer scheduled runs.
+- Do not expect this repository's Defender workflow to catch this repository's own Proposer workflow in parallel. Live Proposer safety must come from its own preflight checks, signer controls, and proposer self-check before broadcast.
+- Treat `CODEX_AUTH_JSON_B64` as dedicated to this operator repository. Do not use the same Codex OAuth login in another repo, runner, machine, or concurrent job stream, because Codex may rotate refresh tokens during normal use and an old reused copy can later fail as revoked or already used.
 - Keep this repository private because workflow artifacts and config can reveal operational details even when Secrets are not committed.
 
 ## Source Repository
