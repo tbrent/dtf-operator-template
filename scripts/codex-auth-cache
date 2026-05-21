@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+
+const { mkdirSync, readFileSync, writeFileSync, chmodSync } = require('node:fs')
+const { dirname } = require('node:path')
+const { createCipheriv, createDecipheriv, randomBytes, scryptSync } = require('node:crypto')
+
+const VERSION = 1
+const CIPHER = 'aes-256-gcm'
+const KDF = 'scrypt'
+
+function usage() {
+  console.error('Usage: CODEX_AUTH_JSON_B64=<secret> scripts/codex-auth-cache encrypt|decrypt <input> <output>')
+}
+
+function requireKey() {
+  const key = (process.env.CODEX_AUTH_JSON_B64 || '').trim()
+  if (!key) throw new Error('CODEX_AUTH_JSON_B64 is required')
+  return key
+}
+
+function deriveKey(password, salt) {
+  return scryptSync(password, salt, 32)
+}
+
+function writePrivateFile(path, data) {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, data, { mode: 0o600 })
+  chmodSync(path, 0o600)
+}
+
+function toBase64(value) {
+  return Buffer.from(value).toString('base64')
+}
+
+function fromBase64(value, label) {
+  if (typeof value !== 'string' || !value) throw new Error(`invalid ${label}`)
+  return Buffer.from(value, 'base64')
+}
+
+function encrypt(input, output) {
+  const password = requireKey()
+  const plaintext = readFileSync(input)
+  const salt = randomBytes(16)
+  const iv = randomBytes(12)
+  const key = deriveKey(password, salt)
+  const cipher = createCipheriv(CIPHER, key, iv)
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
+  const envelope = {
+    version: VERSION,
+    cipher: CIPHER,
+    kdf: KDF,
+    salt: toBase64(salt),
+    iv: toBase64(iv),
+    tag: toBase64(cipher.getAuthTag()),
+    ciphertext: toBase64(ciphertext),
+  }
+  writePrivateFile(output, `${JSON.stringify(envelope)}\n`)
+}
+
+function decrypt(input, output) {
+  const password = requireKey()
+  const envelope = JSON.parse(readFileSync(input, 'utf8'))
+  if (envelope.version !== VERSION) throw new Error('unsupported auth cache version')
+  if (envelope.cipher !== CIPHER) throw new Error('unsupported auth cache cipher')
+  if (envelope.kdf !== KDF) throw new Error('unsupported auth cache kdf')
+  const salt = fromBase64(envelope.salt, 'salt')
+  const iv = fromBase64(envelope.iv, 'iv')
+  const tag = fromBase64(envelope.tag, 'tag')
+  const ciphertext = fromBase64(envelope.ciphertext, 'ciphertext')
+  const key = deriveKey(password, salt)
+  const decipher = createDecipheriv(CIPHER, key, iv)
+  decipher.setAuthTag(tag)
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  writePrivateFile(output, plaintext)
+}
+
+try {
+  const [command, input, output] = process.argv.slice(2)
+  if (!['encrypt', 'decrypt'].includes(command) || !input || !output) {
+    usage()
+    process.exit(2)
+  }
+  if (command === 'encrypt') encrypt(input, output)
+  else decrypt(input, output)
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error(`codex-auth-cache: ${message}`)
+  process.exit(1)
+}
