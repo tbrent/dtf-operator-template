@@ -19,6 +19,9 @@ Options:
   --foundry-account <name>         Defaults to dtf-proposer
   --repo <owner/repo>              Target GitHub repository for gh secret set
   -h, --help                       Show this help
+
+Optional environment:
+  CODEX_AUTH_CACHE_KEY             Existing cache encryption key; generated if the repository secret is missing
 EOF
 }
 
@@ -52,6 +55,31 @@ set_secret() {
   else
     gh secret set "$name" --body "$value"
   fi
+}
+
+secret_exists() {
+  local name="$1"
+  if [[ -n "$repo" ]]; then
+    gh secret list --repo "$repo" --json name --jq ".[] | select(.name == \"$name\") | .name" | grep -qx "$name"
+  else
+    gh secret list --json name --jq ".[] | select(.name == \"$name\") | .name" | grep -qx "$name"
+  fi
+}
+
+ensure_codex_auth_cache_key() {
+  local cache_key="${CODEX_AUTH_CACHE_KEY:-}"
+  if [[ -n "$cache_key" ]]; then
+    set_secret CODEX_AUTH_CACHE_KEY "$cache_key"
+    echo "codex_auth_cache_key=updated_from_env"
+    return
+  fi
+  if secret_exists CODEX_AUTH_CACHE_KEY; then
+    echo "codex_auth_cache_key=existing"
+    return
+  fi
+  cache_key="$(random_password)"
+  set_secret CODEX_AUTH_CACHE_KEY "$cache_key"
+  echo "codex_auth_cache_key=generated"
 }
 
 codex_auth="${HOME:-.}/.codex/auth.json"
@@ -135,6 +163,7 @@ address="$(cast wallet address --keystore "$keystore" --password-file "$keystore
 
 echo "Setting proposer GitHub Secrets${repo:+ for $repo}"
 set_secret CODEX_AUTH_JSON_B64 "$(base64_file "$codex_auth")"
+ensure_codex_auth_cache_key
 set_secret PROPOSER_KEYSTORE_JSON_B64 "$(base64_file "$keystore")"
 set_secret PROPOSER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
 set_secret FOUNDRY_ACCOUNT "$foundry_account"

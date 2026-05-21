@@ -63,6 +63,7 @@ Common runtime inputs:
 ```text
 RPC_URL or BASE_RPC_URL / MAINNET_RPC_URL / BSC_RPC_URL
 CODEX_AUTH_JSON_B64
+CODEX_AUTH_CACHE_KEY
 ```
 
 Scout ETL endpoint, provider, and short-term API key access are owned by the published runtime image. Forks do not configure Scout ETL.
@@ -79,9 +80,12 @@ Optional repository variables:
 DTF_OPERATOR_IMAGE
 MIN_SIGNER_BALANCE_WEI
 CODEX_AUTH_ALERT_COOLDOWN_SECONDS
+CODEX_AUTH_CACHE_VERSION
 ```
 
 Codex authentication failures send Resend email alerts when `RESEND_API_KEY` and `DEFENDER_EMAIL_TO` are configured. Alerts are rate-limited by persisted workflow state; `CODEX_AUTH_ALERT_COOLDOWN_SECONDS` defaults to 86400 seconds.
+
+`CODEX_AUTH_JSON_B64` seeds Codex ChatGPT OAuth auth. `CODEX_AUTH_CACHE_KEY` encrypts the refreshed `auth.json` that workflows save in GitHub Actions cache after each Codex run, so refresh-token rotations survive ephemeral runners. The setup helpers create `CODEX_AUTH_CACHE_KEY` if the repository secret is missing. Set `CODEX_AUTH_CACHE_VERSION` only when intentionally discarding the old encrypted cache, such as after rotating the cache key or reseeding from a fresh `codex login`.
 
 Required for live proposer broadcasts:
 
@@ -223,7 +227,7 @@ The setup helpers support existing keystores with `--keystore` and `--keystore-p
 - Proposer and Defender share one repo-wide GitHub Actions concurrency lock, `dtf-codex-auth-${{ github.repository_id }}`. If either workflow is running, the other waits instead of running with the same Codex OAuth credentials.
 - GitHub Actions keeps at most one pending run for that shared lock. If scheduled runs pile up while another Proposer or Defender run is active, older pending runs can be replaced by newer scheduled runs.
 - Do not expect this repository's Defender workflow to catch this repository's own Proposer workflow in parallel. Live Proposer safety must come from its own preflight checks, signer controls, and proposer self-check before broadcast.
-- Treat `CODEX_AUTH_JSON_B64` as dedicated to this operator repository. Do not use the same Codex OAuth login in another repo, runner, machine, or concurrent job stream, because Codex may rotate refresh tokens during normal use and an old reused copy can later fail as revoked or already used.
+- Treat `CODEX_AUTH_JSON_B64`, `CODEX_AUTH_CACHE_KEY`, and the encrypted Codex auth cache as dedicated to this operator repository. Do not use the same Codex OAuth login in another repo, runner, machine, or concurrent job stream, because Codex may rotate refresh tokens during normal use and an old reused copy can later fail as revoked or already used.
 - Keep this repository private because workflow artifacts and config can reveal operational details even when Secrets are not committed.
 
 ## Source Repository
