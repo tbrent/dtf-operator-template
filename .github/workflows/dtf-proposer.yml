@@ -66,6 +66,7 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: read
   packages: read
 
@@ -83,6 +84,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Restore operator alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: .operator-alert-state
+          key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-
+            operator-alert-state-${{ github.repository_id }}-
 
       - name: Resolve operator image
         shell: bash
@@ -128,17 +138,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p proposer-data
+          mkdir -p proposer-data .operator-alert-state
           docker run --rm \
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
             -e RUNTIME_DIR=/runtime \
             -e OUT_ROOT=/data \
+            -e CODEX_ALERT_STATE_DIR=/alert-state \
             -e RPC_URL \
             -e MAINNET_RPC_URL \
             -e BSC_RPC_URL \
             -e BASE_RPC_URL \
             -e ALLOW_SYNTHETIC_SIGNAL_STRATEGY_VAR \
             -e CODEX_AUTH_JSON_B64 \
+            -e CODEX_AUTH_ALERT_COOLDOWN_SECONDS \
+            -e RESEND_API_KEY \
+            -e DEFENDER_EMAIL_TO \
+            -e DEFENDER_EMAIL_FROM \
             -e PROPOSER_KEYSTORE_JSON_B64 \
             -e PROPOSER_KEYSTORE_PASSWORD \
             -e FOUNDRY_ACCOUNT \
@@ -170,11 +185,14 @@ jobs:
             -e RPC_URL_OVERRIDE_INPUT \
             -e BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
             -e CONFIRM_BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
+            -e GITHUB_SERVER_URL \
+            -e GITHUB_REPOSITORY \
             -e GITHUB_EVENT_NAME \
             -e GITHUB_RUN_ID \
             -e GITHUB_RUN_ATTEMPT \
             -v "$PWD/.github/dtf-operator.yml:/config/dtf-operator.yml:ro" \
             -v "$PWD/proposer-data:/data" \
+            -v "$PWD/.operator-alert-state:/alert-state" \
             "$DTF_OPERATOR_IMAGE" \
             node dist/cli/run-github-proposer.js
         env:
@@ -184,6 +202,10 @@ jobs:
           BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
           ALLOW_SYNTHETIC_SIGNAL_STRATEGY_VAR: ${{ vars.ALLOW_SYNTHETIC_SIGNAL_STRATEGY }}
           CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+          CODEX_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.CODEX_AUTH_ALERT_COOLDOWN_SECONDS }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO || vars.DEFENDER_EMAIL_TO }}
+          DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
           PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
           PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
           FOUNDRY_ACCOUNT: ${{ secrets.FOUNDRY_ACCOUNT }}
@@ -223,3 +245,10 @@ jobs:
           name: dtf-proposer-${{ inputs.mode || github.event_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: proposer-data
           if-no-files-found: warn
+
+      - name: Save operator alert state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .operator-alert-state
+          key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
