@@ -28,8 +28,8 @@ proposer:
   cowbotMinValueUsd:
   allowSyntheticSignalStrategy: false
   inference:
-    model: gpt-5.4
-    reasoningEffort: low
+    model: gpt-5.3-codex-spark
+    reasoningEffort: medium
 
   # Required for efficient first runs. Set fromBlock to a block before this
   # DTF/Folio's first relevant governance proposal, then tune chunking only if
@@ -72,5 +72,5 @@ defender:
   # casting vetoes. If email is also missing, it fails hard.
   alertOnlyWithoutSigner: true
   inference:
-    model: gpt-5.4
-    reasoningEffort: low
+    model: gpt-5.3-codex-spark
+    reasoningEffort: medium
