@@ -89,7 +89,7 @@ Codex authentication failures send Resend email alerts when `RESEND_API_KEY` and
 
 `CODEX_AUTH_JSON_B64` seeds Codex ChatGPT OAuth auth and encrypts the refreshed `auth.json` that workflows save in GitHub Actions cache after each Codex run, so refresh-token rotations survive ephemeral runners. If you reseed from a fresh `codex login`, update `CODEX_AUTH_JSON_B64`; the old encrypted cache will fail to decrypt and the next workflow run will bootstrap from the new secret.
 
-`proposer.inference` and `defender.inference` in `.github/dtf-operator.yml` are required and default this fork to `gpt-5.4` with `low` reasoning effort. The optional `PROPOSER_CODEX_*` and `DEFENDER_CODEX_*` repository variables override the matching YAML values without committing config changes. Reasoning effort must be `minimal`, `low`, `medium`, `high`, or `xhigh`.
+`proposer.inference` and `defender.inference` in `.github/dtf-operator.yml` are required and default this fork to `gpt-5.3-codex-spark` with `medium` reasoning effort. The optional `PROPOSER_CODEX_*` and `DEFENDER_CODEX_*` repository variables override the matching YAML values without committing config changes. Reasoning effort must be `minimal`, `low`, `medium`, `high`, or `xhigh`.
 
 Required for live proposer broadcasts:
 
@@ -143,8 +143,8 @@ chainId: 8453
 proposer:
   rebalanceCadence: 30d
   inference:
-    model: gpt-5.4
-    reasoningEffort: low
+    model: gpt-5.3-codex-spark
+    reasoningEffort: medium
   optimisticProposerAddress: "0xGeneratedProposerSignerAddress"
   auctionLauncherAddress:
   proposalScan:
@@ -156,8 +156,8 @@ defender:
   requireAiApproval: true
   alertOnlyWithoutSigner: true
   inference:
-    model: gpt-5.4
-    reasoningEffort: low
+    model: gpt-5.3-codex-spark
+    reasoningEffort: medium
 ```
 
 `folioAddress` and `chainId` must identify the DTF/Folio this fork operates. `proposer.rebalanceCadence` is the deterministic auction cadence. For example, `30d` means the next rebalance auction should start at least 30 days after the first auction from the latest successful rebalance.
