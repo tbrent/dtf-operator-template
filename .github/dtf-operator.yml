@@ -27,6 +27,9 @@ proposer:
   minOpenAuctionValueUsd:
   cowbotMinValueUsd:
   allowSyntheticSignalStrategy: false
+  inference:
+    model: gpt-5.4
+    reasoningEffort: low
 
   # Required for efficient first runs. Set fromBlock to a block before this
   # DTF/Folio's first relevant governance proposal, then tune chunking only if
@@ -68,3 +71,6 @@ defender:
   # If signer secrets are missing, the workflow sends email alerts instead of
   # casting vetoes. If email is also missing, it fails hard.
   alertOnlyWithoutSigner: true
+  inference:
+    model: gpt-5.4
+    reasoningEffort: low

@@ -79,11 +79,17 @@ Optional repository variables:
 DTF_OPERATOR_IMAGE
 MIN_SIGNER_BALANCE_WEI
 CODEX_AUTH_ALERT_COOLDOWN_SECONDS
+PROPOSER_CODEX_MODEL
+PROPOSER_CODEX_REASONING_EFFORT
+DEFENDER_CODEX_MODEL
+DEFENDER_CODEX_REASONING_EFFORT
 ```
 
 Codex authentication failures send Resend email alerts when `RESEND_API_KEY` and `DEFENDER_EMAIL_TO` are configured. Alerts are rate-limited by persisted workflow state; `CODEX_AUTH_ALERT_COOLDOWN_SECONDS` defaults to 86400 seconds.
 
 `CODEX_AUTH_JSON_B64` seeds Codex ChatGPT OAuth auth and encrypts the refreshed `auth.json` that workflows save in GitHub Actions cache after each Codex run, so refresh-token rotations survive ephemeral runners. If you reseed from a fresh `codex login`, update `CODEX_AUTH_JSON_B64`; the old encrypted cache will fail to decrypt and the next workflow run will bootstrap from the new secret.
+
+`proposer.inference` and `defender.inference` in `.github/dtf-operator.yml` are required and default this fork to `gpt-5.4` with `low` reasoning effort. The optional `PROPOSER_CODEX_*` and `DEFENDER_CODEX_*` repository variables override the matching YAML values without committing config changes. Reasoning effort must be `minimal`, `low`, `medium`, `high`, or `xhigh`.
 
 Required for live proposer broadcasts:
 
@@ -136,6 +142,9 @@ folioAddress: "0xYourDtfOrFolioAddress"
 chainId: 8453
 proposer:
   rebalanceCadence: 30d
+  inference:
+    model: gpt-5.4
+    reasoningEffort: low
   optimisticProposerAddress: "0xGeneratedProposerSignerAddress"
   auctionLauncherAddress:
   proposalScan:
@@ -146,6 +155,9 @@ defender:
     fromBlock: 12345678
   requireAiApproval: true
   alertOnlyWithoutSigner: true
+  inference:
+    model: gpt-5.4
+    reasoningEffort: low
 ```
 
 `folioAddress` and `chainId` must identify the DTF/Folio this fork operates. `proposer.rebalanceCadence` is the deterministic auction cadence. For example, `30d` means the next rebalance auction should start at least 30 days after the first auction from the latest successful rebalance.
