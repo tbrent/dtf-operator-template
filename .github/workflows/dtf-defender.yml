@@ -79,35 +79,6 @@ jobs:
             operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-
             operator-alert-state-${{ github.repository_id }}-
 
-      - name: Restore Codex auth cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .codex-auth-cache/auth.json.enc
-          key: codex-auth-cache-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            codex-auth-cache-${{ github.repository_id }}-
-
-      - name: Decrypt Codex auth cache
-        shell: bash
-        env:
-          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          mkdir -p .codex-auth-cache
-          if [[ ! -f .codex-auth-cache/auth.json.enc ]]; then
-            echo "codex_auth_cache=miss"
-            exit 0
-          fi
-          if scripts/codex-auth-cache decrypt .codex-auth-cache/auth.json.enc .codex-auth-cache/auth.json; then
-            echo "codex_auth_cache=restored"
-          elif [[ -n "${CODEX_AUTH_JSON_B64:-}" ]]; then
-            echo "codex_auth_cache=decrypt_failed_bootstrap"
-            rm -f .codex-auth-cache/auth.json .codex-auth-cache/auth.json.enc
-          else
-            echo "failed to decrypt cached Codex auth and CODEX_AUTH_JSON_B64 is unavailable" >&2
-            exit 2
-          fi
-
       - name: Resolve operator image
         shell: bash
         run: |
@@ -147,35 +118,81 @@ jobs:
             exit 2
           fi
 
+      - name: Start CLIProxyAPI inference sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLIPROXY_AUTH_TGZ_B64:-}" ]]; then
+            echo "CLIPROXY_AUTH_TGZ_B64 secret is required" >&2
+            exit 2
+          fi
+          docker network create dtf-inference >/dev/null 2>&1 || true
+          rm -rf cliproxy-auth
+          mkdir -p cliproxy-auth
+          echo "$CLIPROXY_AUTH_TGZ_B64" | base64 -d | tar -xzf - -C cliproxy-auth
+          cat > cliproxy.config.yaml <<EOF
+          host: "0.0.0.0"
+          port: 8317
+          remote-management:
+            allow-remote: false
+            secret-key: ""
+            disable-control-panel: true
+          auth-dir: "/root/.cli-proxy-api"
+          api-keys:
+            - "$INFERENCE_API_KEY"
+          debug: false
+          logging-to-file: false
+          usage-statistics-enabled: false
+          commercial-mode: true
+          request-retry: 0
+          disable-cooling: true
+          save-cooldown-status: false
+          ws-auth: true
+          EOF
+          docker rm -f cliproxy >/dev/null 2>&1 || true
+          docker run -d \
+            --name cliproxy \
+            --network dtf-inference \
+            -p 127.0.0.1:8317:8317 \
+            -v "$PWD/cliproxy.config.yaml:/CLIProxyAPI/config.yaml:ro" \
+            -v "$PWD/cliproxy-auth:/root/.cli-proxy-api" \
+            "${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}" \
+            /CLIProxyAPI/CLIProxyAPI -config /CLIProxyAPI/config.yaml
+          for _ in {1..60}; do
+            if curl -sf -H "Authorization: Bearer $INFERENCE_API_KEY" http://127.0.0.1:8317/v1/models >/dev/null; then
+              echo "cliproxy_ready"
+              curl -s -H "Authorization: Bearer $INFERENCE_API_KEY" http://127.0.0.1:8317/v1/models
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cliproxy || true
+          exit 2
+        env:
+          CLIPROXY_AUTH_TGZ_B64: ${{ secrets.CLIPROXY_AUTH_TGZ_B64 }}
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          CLI_PROXY_IMAGE: ${{ vars.CLI_PROXY_IMAGE }}
+
       - name: Run defender
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .defender-state .operator-alert-state .codex-auth-cache
-          if [[ -f .codex-auth-cache/auth.json ]]; then
-            CODEX_AUTH_JSON_B64="$(base64 -w0 .codex-auth-cache/auth.json)"
-            export CODEX_AUTH_JSON_B64
-            echo "codex_auth_source=cache"
-          elif [[ -n "${CODEX_AUTH_JSON_B64:-}" ]]; then
-            echo "codex_auth_source=seed_secret"
-          else
-            echo "codex_auth_source=unset"
-          fi
+          mkdir -p .defender-state .operator-alert-state
           docker run --rm \
+            --network dtf-inference \
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
             -e RUNTIME_DIR=/runtime \
             -e OUT_ROOT=/data \
-            -e CODEX_ALERT_STATE_DIR=/alert-state \
+            -e DEFAULT_PROJECT_ENV_FILE=/opt/dtf-operator/default-project.env \
+            -e INFERENCE_BASE_URL \
+            -e INFERENCE_API_KEY \
+            -e INFERENCE_ALERT_STATE_DIR=/alert-state \
             -e ONCE_INPUT \
             -e RUN_HOURS_INPUT \
             -e POLL_SECONDS_INPUT \
             -e PROPOSAL_FROM_BLOCK_INPUT \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS \
-            -e CODEX_AUTH_JSON_B64 \
-            -e CODEX_AUTH_ALERT_COOLDOWN_SECONDS \
-            -e CODEX_MODEL \
-            -e CODEX_REASONING_EFFORT \
             -e PROPOSER_KEYSTORE_JSON_B64 \
             -e PROPOSER_KEYSTORE_PASSWORD \
             -e DEFENDER_KEYSTORE_JSON_B64 \
@@ -196,14 +213,11 @@ jobs:
             -v "$PWD/.github/dtf-operator.yml:/config/dtf-operator.yml:ro" \
             -v "$PWD/.defender-state:/data" \
             -v "$PWD/.operator-alert-state:/alert-state" \
-            -v "$PWD/.codex-auth-cache:/runtime/codex" \
             "$DTF_OPERATOR_IMAGE" \
             node dist/cli/run-github-defender.js
         env:
-          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
-          CODEX_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.CODEX_AUTH_ALERT_COOLDOWN_SECONDS }}
-          CODEX_MODEL: ${{ vars.DEFENDER_CODEX_MODEL }}
-          CODEX_REASONING_EFFORT: ${{ vars.DEFENDER_CODEX_REASONING_EFFORT }}
+          INFERENCE_BASE_URL: http://cliproxy:8317/v1
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
           PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
           PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
           DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
@@ -224,56 +238,6 @@ jobs:
           DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
           DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
 
-      - name: Normalize Codex auth cache ownership
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -d .codex-auth-cache ]]; then
-            if command -v sudo >/dev/null 2>&1; then
-              sudo chown -R "$(id -u):$(id -g)" .codex-auth-cache
-            else
-              chown -R "$(id -u):$(id -g)" .codex-auth-cache
-            fi
-          fi
-
-      - name: Encrypt Codex auth cache
-        id: encrypt_codex_auth_cache
-        if: always()
-        shell: bash
-        env:
-          CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          mkdir -p .codex-auth-cache
-          if [[ ! -s .codex-auth-cache/auth.json ]]; then
-            echo "cache_ready=false" >> "$GITHUB_OUTPUT"
-            echo "codex_auth_cache=empty"
-            exit 0
-          fi
-          if [[ -z "${CODEX_AUTH_JSON_B64:-}" ]]; then
-            echo "CODEX_AUTH_JSON_B64 secret is required to preserve refreshed Codex auth" >&2
-            exit 2
-          fi
-          scripts/codex-auth-cache encrypt .codex-auth-cache/auth.json .codex-auth-cache/auth.json.enc
-          rm -f .codex-auth-cache/auth.json
-          echo "cache_ready=true" >> "$GITHUB_OUTPUT"
-          echo "codex_auth_cache=encrypted"
-
-      - name: Remove plaintext Codex auth cache
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -f .codex-auth-cache/auth.json
-
-      - name: Save Codex auth cache
-        if: always() && steps.encrypt_codex_auth_cache.outputs.cache_ready == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .codex-auth-cache/auth.json.enc
-          key: codex-auth-cache-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
-
       - name: Save defender state
         if: always()
         uses: actions/cache/save@v4
@@ -287,3 +251,12 @@ jobs:
         with:
           path: .operator-alert-state
           key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Stop inference sidecar
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker logs cliproxy || true
+          docker rm -f cliproxy >/dev/null 2>&1 || true
+          docker network rm dtf-inference >/dev/null 2>&1 || true
