@@ -28,7 +28,7 @@ proposer:
   cowbotMinValueUsd:
   allowSyntheticSignalStrategy: false
   inference:
-    model: gpt-5.3-codex-spark
+    model: gpt-5.5
     reasoningEffort: medium
 
   # Required for efficient first runs. Set fromBlock to a block before this
@@ -72,5 +72,5 @@ defender:
   # casting vetoes. If email is also missing, it fails hard.
   alertOnlyWithoutSigner: true
   inference:
-    model: gpt-5.3-codex-spark
+    model: gpt-5.5
     reasoningEffort: medium
