@@ -7,14 +7,15 @@ const { createCipheriv, createDecipheriv, randomBytes, scryptSync } = require('n
 const VERSION = 1
 const CIPHER = 'aes-256-gcm'
 const KDF = 'scrypt'
+const AUTH_SEED_ENV = 'CLIPROXY_AUTH_TGZ_B64'
 
 function usage() {
-  console.error('Usage: CODEX_AUTH_JSON_B64=<secret> scripts/codex-auth-cache encrypt|decrypt <input> <output>')
+  console.error(`Usage: ${AUTH_SEED_ENV}=<secret> scripts/codex-auth-cache encrypt|decrypt <input> <output>`)
 }
 
 function requireKey() {
-  const key = (process.env.CODEX_AUTH_JSON_B64 || '').trim()
-  if (!key) throw new Error('CODEX_AUTH_JSON_B64 is required')
+  const key = (process.env[AUTH_SEED_ENV] || '').trim()
+  if (!key) throw new Error(`${AUTH_SEED_ENV} is required`)
   return key
 }
 
@@ -84,6 +85,6 @@ try {
   else decrypt(input, output)
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
-  console.error(`codex-auth-cache: ${message}`)
+  console.error(`cliproxy-auth-cache: ${message}`)
   process.exit(1)
 }

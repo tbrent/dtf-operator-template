@@ -24,7 +24,7 @@ The mainline setup uses one operator signer for proposing, launching auctions, a
 2. Leave `DTF_ACTIONS_ENABLED` unset until config and secrets are ready.
 3. Choose the DTF/Folio address and chain this fork will operate.
 4. Edit `.github/dtf-operator.yml` for that DTF/Folio.
-5. Run `codex login` locally.
+5. Authenticate CLIProxyAPI locally with its `-codex-login -no-browser` flow; the resulting auth directory defaults to `~/.cli-proxy-api`.
 6. Install and authenticate `gh`, and install Foundry so `cast` is available.
 7. Upload required GitHub Secrets with `scripts/setup-github-proposer` and/or `scripts/setup-github-defender`.
 8. Set repository variable `DTF_ACTIONS_ENABLED=true` in the fork.
@@ -62,7 +62,7 @@ Common runtime inputs:
 
 ```text
 RPC_URL or BASE_RPC_URL / MAINNET_RPC_URL / BSC_RPC_URL
-CODEX_AUTH_JSON_B64
+CLIPROXY_AUTH_TGZ_B64
 ```
 
 Scout ETL endpoint, provider, and short-term API key access are owned by the published runtime image. Forks do not configure Scout ETL.
@@ -87,7 +87,7 @@ DEFENDER_CODEX_REASONING_EFFORT
 
 Codex authentication failures send Resend email alerts when `RESEND_API_KEY` and `DEFENDER_EMAIL_TO` are configured. Alerts are rate-limited by persisted workflow state; `CODEX_AUTH_ALERT_COOLDOWN_SECONDS` defaults to 86400 seconds.
 
-`CODEX_AUTH_JSON_B64` seeds Codex ChatGPT OAuth auth and encrypts the refreshed `auth.json` that workflows save in GitHub Actions cache after each Codex run, so refresh-token rotations survive ephemeral runners. If you reseed from a fresh `codex login`, update `CODEX_AUTH_JSON_B64`; the old encrypted cache will fail to decrypt and the next workflow run will bootstrap from the new secret.
+`CLIPROXY_AUTH_TGZ_B64` is a base64-encoded CLIProxy OAuth auth archive. It bootstraps each runner and encrypts the refreshed CLIProxy auth archive saved in GitHub Actions cache after each run, so refresh-token rotations survive ephemeral runners. If you replace the bootstrap archive, update `CLIPROXY_AUTH_TGZ_B64`; the old encrypted cache will fail to decrypt and the next workflow run will bootstrap from the new secret.
 
 `proposer.inference` and `defender.inference` in `.github/dtf-operator.yml` are required and default this fork to `gpt-5.3-codex-spark` with `medium` reasoning effort. The optional `PROPOSER_CODEX_*` and `DEFENDER_CODEX_*` repository variables override the matching YAML values without committing config changes. Reasoning effort must be `minimal`, `low`, `medium`, `high`, or `xhigh`.
 
@@ -168,12 +168,15 @@ Set both `proposer.proposalScan.fromBlock` and `defender.proposalScan.fromBlock`
 
 ## Proposer Setup
 
-Generate a new proposer keystore and upload required Secrets after running `codex login` locally:
+Authenticate CLIProxyAPI before running either setup helper. Both helpers package the contents of `~/.cli-proxy-api` by default; pass `--cliproxy-auth-dir <path>` when the auth directory is elsewhere. They upload that tar.gz as the base64-encoded `CLIPROXY_AUTH_TGZ_B64` Secret. On the first workflow run, this Secret bootstraps the auth directory; each run then encrypts the refreshed archive with AES-GCM/scrypt and saves it in GitHub Actions cache because Actions cannot write Secrets.
+
+Generate a new proposer keystore and upload required Secrets:
 
 ```bash
 scripts/setup-github-proposer \
   --generate-keystore-dir ~/.dtf-operator/example/proposer-keystores \
   --keystore-password-file ~/.dtf-operator/example/proposer-password \
+  --cliproxy-auth-dir ~/.cli-proxy-api \
   --init-keystore-password \
   --foundry-account example-proposer \
   --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
@@ -196,6 +199,7 @@ Upload alert-only secrets:
 ```bash
 RESEND_API_KEY=<key> scripts/setup-github-defender \
   --email alerts@example.com \
+  --cliproxy-auth-dir ~/.cli-proxy-api \
   --from-email defender@example.com \
   --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
 ```
@@ -234,10 +238,10 @@ The setup helpers support existing keystores with `--keystore` and `--keystore-p
 - Run scheduled and manual workflows only from the fork default branch after GitHub Actions is enabled.
 - Use `DTF_ACTIONS_ENABLED=true` as the final arming switch after config and Secrets are ready.
 - Leave `DTF_OPERATOR_IMAGE` unset to follow the default `stable` operator channel, or pin it to a `sha-*` or `v*` tag when production needs explicit runtime changes only.
-- Proposer and Defender share one repo-wide GitHub Actions concurrency lock, `dtf-codex-auth-${{ github.repository_id }}`. If either workflow is running, the other waits instead of running with the same Codex OAuth credentials.
+- Proposer and Defender share one repo-wide GitHub Actions concurrency lock, `dtf-codex-auth-${{ github.repository_id }}`. If either workflow is running, the other waits instead of running with the same CLIProxy OAuth credentials.
 - GitHub Actions keeps at most one pending run for that shared lock. If scheduled runs pile up while another Proposer or Defender run is active, older pending runs can be replaced by newer scheduled runs.
 - Do not expect this repository's Defender workflow to catch this repository's own Proposer workflow in parallel. Live Proposer safety must come from its own preflight checks, signer controls, and proposer self-check before broadcast.
-- Treat `CODEX_AUTH_JSON_B64` and the encrypted Codex auth cache as dedicated to this operator repository. Do not use the same Codex OAuth login in another repo, runner, machine, or concurrent job stream, because Codex may rotate refresh tokens during normal use and an old reused copy can later fail as revoked or already used.
+- Treat `CLIPROXY_AUTH_TGZ_B64` and the encrypted CLIProxy auth cache as dedicated to this operator repository. Do not use the same OAuth login in another repo, runner, machine, or concurrent job stream, because refresh tokens may rotate during normal use and an old reused copy can later fail as revoked or already used.
 - Keep this repository private because workflow artifacts and config can reveal operational details even when Secrets are not committed.
 
 ## Source Repository
