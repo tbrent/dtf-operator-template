@@ -5,13 +5,13 @@ usage() {
   cat <<'EOF'
 Usage: RESEND_API_KEY=<key> scripts/setup-github-defender --email <address> [options]
 
-Uploads Codex auth, email alert secrets, and optional defender veto signer secrets
+Uploads CLIProxy auth, email alert secrets, and optional defender veto signer secrets
 to a private operator fork.
 
 Options:
   --email <address>                Required alert destination
   --from-email <address>           Optional sender; defaults in runtime when unset
-  --codex-auth <path>              Defaults to ~/.codex/auth.json
+  --cliproxy-auth-dir <path>       Defaults to ~/.cli-proxy-api
   --keystore <path>                Existing Foundry keystore
   --keystore-password-file <path>  Required with signer setup
   --init-keystore-password         Create password file if missing when generating
@@ -56,9 +56,19 @@ set_secret() {
   fi
 }
 
+set_base64_file_secret() {
+  local name="$1"
+  local file="$2"
+  if [[ -n "$repo" ]]; then
+    base64_file "$file" | gh secret set "$name" --repo "$repo"
+  else
+    base64_file "$file" | gh secret set "$name"
+  fi
+}
+
 email=""
 from_email="${DEFENDER_EMAIL_FROM:-}"
-codex_auth="${HOME:-.}/.codex/auth.json"
+cliproxy_auth_dir="${HOME:-.}/.cli-proxy-api"
 keystore=""
 keystore_password_file=""
 init_keystore_password=0
@@ -71,7 +81,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --email) email="${2:-}"; shift 2 ;;
     --from-email) from_email="${2:-}"; shift 2 ;;
-    --codex-auth) codex_auth="${2:-}"; shift 2 ;;
+    --cliproxy-auth-dir) cliproxy_auth_dir="${2:-}"; shift 2 ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
     --init-keystore-password) init_keystore_password=1; shift ;;
@@ -92,7 +102,17 @@ done
 [[ "$foundry_account" != -* && "$foundry_account" != *..* && "$foundry_account" != */* ]] || die "--foundry-account must not contain path traversal"
 
 require_command gh
-[[ -f "$codex_auth" ]] || die "Codex auth file not found: $codex_auth; run 'codex login' first"
+require_command tar
+[[ -d "$cliproxy_auth_dir" ]] || die "CLIProxy auth directory not found: $cliproxy_auth_dir"
+
+umask 077
+cliproxy_auth_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-auth.XXXXXX")"
+cliproxy_auth_archive="$cliproxy_auth_tmpdir/cliproxy-auth.tgz"
+cleanup() {
+  rm -rf "$cliproxy_auth_tmpdir"
+}
+trap cleanup EXIT
+tar -czf "$cliproxy_auth_archive" -C "$cliproxy_auth_dir" .
 
 if [[ -n "$keystore" || -n "$generate_keystore_dir" ]]; then
   require_command cast
@@ -131,7 +151,7 @@ if [[ -n "$generate_keystore_dir" ]]; then
 fi
 
 echo "Setting defender GitHub Secrets${repo:+ for $repo}"
-set_secret CODEX_AUTH_JSON_B64 "$(base64_file "$codex_auth")"
+set_base64_file_secret CLIPROXY_AUTH_TGZ_B64 "$cliproxy_auth_archive"
 set_secret RESEND_API_KEY "$RESEND_API_KEY"
 set_secret DEFENDER_EMAIL_TO "$email"
 if [[ -n "$from_email" ]]; then
@@ -144,10 +164,10 @@ if [[ -n "$keystore" ]]; then
   set_secret DEFENDER_KEYSTORE_JSON_B64 "$(base64_file "$keystore")"
   set_secret DEFENDER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
   set_secret DEFENDER_FOUNDRY_ACCOUNT "$foundry_account"
-  echo "configured=codex,email,onchain-veto"
+  echo "configured=cliproxy,email,onchain-veto"
   echo "defender_signer=$defender_address"
 else
-  echo "configured=codex,email,alert-only"
+  echo "configured=cliproxy,email,alert-only"
 fi
 
 echo "next_step=edit .github/dtf-operator.yml and enable GitHub Actions"
