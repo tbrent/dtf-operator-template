@@ -9,7 +9,7 @@ Do not put operator secrets in public repositories. Do not open deployment-confi
 ## Runtime Model
 
 - `DTF Proposer` wakes on a schedule, checks onchain lifecycle state, and exits unless a rebalance lifecycle action is due.
-- `DTF Defender` wakes on a schedule, checks for new optimistic proposals, and exits unless a new `startRebalance()` proposal needs review.
+- `DTF Defender` wakes on a schedule, checks the configured Folio target or targets for new optimistic proposals, and exits unless a new `startRebalance()` proposal needs review.
 - Public operator configuration lives in `.github/dtf-operator.yml`.
 - Secret material lives in GitHub Secrets or local Foundry keystores, never in the repository.
 - Both workflows run the same Docker runtime image by default.
@@ -22,8 +22,8 @@ The mainline setup uses one operator signer for proposing, launching auctions, a
 
 1. Fork this template into a private repository and enable GitHub Actions in the fork.
 2. Leave `DTF_ACTIONS_ENABLED` unset until config and secrets are ready.
-3. Choose the DTF/Folio address and chain this fork will operate.
-4. Edit `.github/dtf-operator.yml` for that DTF/Folio.
+3. Choose the top-level DTF/Folio that Proposer will operate and, if needed, the additional Folios that Defender will protect.
+4. Edit `.github/dtf-operator.yml` for those targets.
 5. Authenticate CLIProxyAPI locally with its `-codex-login -no-browser` flow; the resulting auth directory defaults to `~/.cli-proxy-api`.
 6. Install and authenticate `gh`, and install Foundry so `cast` is available.
 7. Upload required GitHub Secrets with `scripts/setup-github-proposer` and/or `scripts/setup-github-defender`.
@@ -46,7 +46,7 @@ Set repository variable `DTF_OPERATOR_IMAGE` to choose a different channel or pi
 
 ## Supported Chains
 
-Set `folioAddress` and `chainId` in `.github/dtf-operator.yml` for the DTF you operate.
+Set top-level `folioAddress` and `chainId` in `.github/dtf-operator.yml` for the DTF that Proposer operates. Defender uses that same target when `defender.folios` is omitted or empty. For multi-Folio Defender operation, each `defender.folios` entry supplies its own `folioAddress`, `chainId`, `governorAddress`, and `proposalScan.fromBlock`.
 
 | Chain | `chainId` | Chain-specific RPC variable |
 | --- | ---: | --- |
@@ -54,7 +54,7 @@ Set `folioAddress` and `chainId` in `.github/dtf-operator.yml` for the DTF you o
 | BNB Smart Chain | `56` | `BSC_RPC_URL` |
 | Base | `8453` | `BASE_RPC_URL` |
 
-`RPC_URL` remains a generic fallback. Prefer chain-specific variables when running multiple deployments from the same fork or host.
+`RPC_URL` remains a generic fallback. Prefer chain-specific variables when Defender targets more than one chain from the same fork.
 
 ## GitHub Secrets And Variables
 
@@ -89,7 +89,7 @@ Codex authentication failures send Resend email alerts when `RESEND_API_KEY` and
 
 `CLIPROXY_AUTH_TGZ_B64` is a base64-encoded CLIProxy OAuth auth archive. It bootstraps each runner and encrypts the refreshed CLIProxy auth archive saved in GitHub Actions cache after each run, so refresh-token rotations survive ephemeral runners. If you replace the bootstrap archive, update `CLIPROXY_AUTH_TGZ_B64`; the old encrypted cache will fail to decrypt and the next workflow run will bootstrap from the new secret.
 
-`proposer.inference` and `defender.inference` in `.github/dtf-operator.yml` are required and default this fork to `gpt-5.3-codex-spark` with `medium` reasoning effort. The optional `PROPOSER_CODEX_*` and `DEFENDER_CODEX_*` repository variables override the matching YAML values without committing config changes. Reasoning effort must be `minimal`, `low`, `medium`, `high`, or `xhigh`.
+`proposer.inference` and `defender.inference` in `.github/dtf-operator.yml` are required and default this fork to `gpt-5.5` with `medium` reasoning effort. The optional `PROPOSER_CODEX_*` and `DEFENDER_CODEX_*` repository variables override the matching YAML values without committing config changes. Reasoning effort must be `minimal`, `low`, `medium`, `high`, or `xhigh`.
 
 Required for live proposer broadcasts:
 
@@ -143,7 +143,7 @@ chainId: 8453
 proposer:
   rebalanceCadence: 30d
   inference:
-    model: gpt-5.3-codex-spark
+    model: gpt-5.5
     reasoningEffort: medium
   optimisticProposerAddress: "0xGeneratedProposerSignerAddress"
   auctionLauncherAddress:
@@ -156,15 +156,54 @@ defender:
   requireAiApproval: true
   alertOnlyWithoutSigner: true
   inference:
-    model: gpt-5.3-codex-spark
+    model: gpt-5.5
     reasoningEffort: medium
 ```
 
-`folioAddress` and `chainId` must identify the DTF/Folio this fork operates. `proposer.rebalanceCadence` is the deterministic auction cadence. For example, `30d` means the next rebalance auction should start at least 30 days after the first auction from the latest successful rebalance.
+Top-level `folioAddress` and `chainId` always identify the Proposer target. They are also the backward-compatible single-Folio Defender target when `defender.folios` is omitted or empty. `proposer.rebalanceCadence` is the deterministic auction cadence. For example, `30d` means the next rebalance auction should start at least 30 days after the first auction from the latest successful rebalance.
 
-Set both `proposer.proposalScan.fromBlock` and `defender.proposalScan.fromBlock` before enabling scheduled runs. Use a chain block before this DTF/Folio's first relevant governance proposal so first-run log scans are bounded and RPC providers do not need to scan from genesis. The value can be the same for proposer and defender unless you have a reason to use different scan windows.
+Set `proposer.proposalScan.fromBlock` before enabling scheduled runs. In legacy single-Folio Defender mode, also set `defender.proposalScan.fromBlock`; in multi-Folio mode, set `proposalScan.fromBlock` on every `defender.folios` entry instead. Use a chain block before the relevant DTF/Folio's first governance proposal so first-run log scans are bounded and RPC providers do not need to scan from genesis.
 
 `proposer.optimisticProposerAddress` is the generated proposer signer address used for dry-run optimistic proposal simulation. In the mainline setup, set `proposer.auctionLauncherAddress` to the same address after granting that signer `AUCTION_LAUNCHER_ROLE`.
+
+### Multi-Folio Defender
+
+To protect multiple Folios, add a non-empty `defender.folios` list. This list replaces the top-level target for Defender only; it does not change Proposer behavior.
+
+```yaml
+version: 1
+folioAddress: "<PROPOSER_FOLIO_ADDRESS>"
+chainId: 8453
+proposer:
+  rebalanceCadence: 30d
+  proposalScan:
+    fromBlock: 34567890
+  inference:
+    model: gpt-5.5
+    reasoningEffort: medium
+defender:
+  folios:
+    - folioAddress: "<FIRST_DEFENDER_FOLIO_ADDRESS>"
+      chainId: 56
+      governorAddress: "<FIRST_TRADING_GOVERNOR_ADDRESS>"
+      proposalScan:
+        fromBlock: 12345678
+    - folioAddress: "<SECOND_DEFENDER_FOLIO_ADDRESS>"
+      chainId: 8453
+      governorAddress: "<SECOND_TRADING_GOVERNOR_ADDRESS>"
+      proposalScan:
+        fromBlock: 23456789
+  frequencyMinutes: 30
+  requireAiApproval: true
+  alertOnlyWithoutSigner: true
+  inference:
+    model: gpt-5.5
+    reasoningEffort: medium
+```
+
+Every entry requires the Folio's current trading governor address and an independently chosen scan start block. The runtime verifies the configured governor against the Folio before evaluating or broadcasting a veto. Configure the chain-specific RPC Secret or Variable for every chain represented in the list.
+
+Multi-Folio Defender remains one GitHub Actions job and invokes `node dist/cli/run-github-defender.js` once. The runtime combines scans by chain, keeps each Folio's review state isolated inside the single Defender state cache, and serializes signing. Do not create a workflow matrix or a job per Folio. The job deliberately continues to use one CLIProxyAPI sidecar, one encrypted OAuth cache, one Defender state cache, one signer Secret set, and the repository-wide concurrency lock.
 
 ## Proposer Setup
 
@@ -204,7 +243,7 @@ RESEND_API_KEY=<key> scripts/setup-github-defender \
   --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
 ```
 
-Mainline onchain veto mode reuses the proposer signer. Delegate enough optimistic voting weight to the proposer signer address printed by `scripts/setup-github-proposer`.
+Mainline onchain veto mode reuses the proposer signer. Delegate enough optimistic voting weight to the proposer signer address printed by `scripts/setup-github-proposer` for every distinct governance voting token used by the configured governors. Governors that share one voting token recognize the same delegation.
 
 Generate a separate defender keystore and upload veto secrets only when the veto signer should diverge from the proposer signer:
 
@@ -218,9 +257,15 @@ RESEND_API_KEY=<key> scripts/setup-github-defender \
   --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
 ```
 
-For a separate Defender signer, delegate enough optimistic voting weight to the printed defender signer address. This does not grant proposer authority.
+For a separate Defender signer, delegate enough optimistic voting weight to the printed defender signer address for every distinct governance voting token used by the configured governors. This does not grant proposer authority. Multi-Folio operation still uses this one Defender signer Secret set; it does not select a different signer per Folio.
 
-Only proposals containing the target Folio `startRebalance()` call are vetted. Non-rebalance proposals are archived and skipped. The cached/signed review ledger prevents invoking Codex more than once for the same optimistic proposal during normal scheduled operation.
+Only proposals containing a configured target Folio's `startRebalance()` call are vetted. Non-rebalance proposals are archived and skipped. The cached/signed review ledger keeps review state isolated by Folio and prevents invoking Codex more than once for the same optimistic proposal during normal scheduled operation.
+
+### Pending Veto Transaction Recovery
+
+An unresolved submitted veto transaction intentionally blocks all further Defender signer use across every configured Folio. This signer-wide block prevents another Folio from consuming the shared signer's nonce while the earlier transaction's outcome is unknown. Normal runs continue checking the submitted transaction and release the block after it resolves.
+
+The manual `DTF Defender` workflow exposes `abandon_submitted_veto_tx_hash` only for exceptional recovery. Its value must be the exact `0x`-prefixed, 32-byte hash of the tracked submitted veto transaction; the runtime rejects malformed or non-matching values. Supplying it is a dangerous explicit operator assertion that the transaction can no longer consume the signer nonce. Use it only after independently verifying that the transaction was dropped or replaced, or that its nonce is otherwise safe. Do not use it merely because one RPC endpoint temporarily cannot find the transaction or receipt.
 
 ## Signer Overrides
 
@@ -239,6 +284,7 @@ The setup helpers support existing keystores with `--keystore` and `--keystore-p
 - Use `DTF_ACTIONS_ENABLED=true` as the final arming switch after config and Secrets are ready.
 - Leave `DTF_OPERATOR_IMAGE` unset to follow the default `stable` operator channel, or pin it to a `sha-*` or `v*` tag when production needs explicit runtime changes only.
 - Proposer and Defender share one repo-wide GitHub Actions concurrency lock, `dtf-codex-auth-${{ github.repository_id }}`. If either workflow is running, the other waits instead of running with the same CLIProxy OAuth credentials.
+- A multi-Folio Defender run is intentionally one job with one runtime invocation and serial signing. Keep one sidecar, OAuth cache, Defender state cache, and signer Secret set for the whole configured list.
 - GitHub Actions keeps at most one pending run for that shared lock. If scheduled runs pile up while another Proposer or Defender run is active, older pending runs can be replaced by newer scheduled runs.
 - Do not expect this repository's Defender workflow to catch this repository's own Proposer workflow in parallel. Live Proposer safety must come from its own preflight checks, signer controls, and proposer self-check before broadcast.
 - Treat `CLIPROXY_AUTH_TGZ_B64` and the encrypted CLIProxy auth cache as dedicated to this operator repository. Do not use the same OAuth login in another repo, runner, machine, or concurrent job stream, because refresh tokens may rotate during normal use and an old reused copy can later fail as revoked or already used.
