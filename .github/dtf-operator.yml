@@ -1,9 +1,9 @@
 # Public fork operator configuration.
-# Choose the DTF/Folio this fork operates, then edit folioAddress and chainId in
-# your fork before adding the documented GitHub Secrets.
+# Top-level folioAddress and chainId are always the Proposer target. Defender
+# also uses them when defender.folios is omitted or empty.
 version: 1
 
-# Required. Set both values for the DTF/Folio this fork operates.
+# Required. Set both values for the DTF/Folio the Proposer operates.
 folioAddress:
 chainId:
 
@@ -53,9 +53,25 @@ defender:
   pollSeconds: 20
   waitActiveSeconds: 120
 
-  # Required for efficient first runs. Set fromBlock to a block before this
-  # DTF/Folio's first relevant governance proposal, then tune chunking only if
-  # your RPC provider cannot handle large eth_getLogs ranges.
+  # Multi-Folio production example only. When this list is present and non-empty,
+  # it replaces the top-level target for Defender only; Proposer still targets
+  # the top-level Folio. Keep one entry per Defender target and set fromBlock to
+  # a block before that Folio's first relevant governance proposal.
+  # folios:
+  #   - folioAddress: "<FIRST_FOLIO_ADDRESS>"
+  #     chainId: 56
+  #     governorAddress: "<FIRST_TRADING_GOVERNOR_ADDRESS>"
+  #     proposalScan:
+  #       fromBlock: 12345678
+  #   - folioAddress: "<SECOND_FOLIO_ADDRESS>"
+  #     chainId: 8453
+  #     governorAddress: "<SECOND_TRADING_GOVERNOR_ADDRESS>"
+  #     proposalScan:
+  #       fromBlock: 23456789
+
+  # Legacy single-Folio fallback. This is used only when defender.folios is
+  # omitted or empty. Tune chunking only if your RPC provider cannot handle
+  # large eth_getLogs ranges.
   proposalScan:
     fromBlock:
     logChunkBlocks:
@@ -65,8 +81,9 @@ defender:
     # May also be supplied through DEFENDER_EMAIL_TO GitHub Secret.
     emailTo:
 
-  # Approvals always require Codex judgement. Deterministic hard vetoes can veto
-  # before AI when they are low false-positive checks.
+  # AI is the sole authority for deciding mandate compliance and whether a
+  # proposal should be approved or vetoed. Deterministic processing supports
+  # the review but does not make mandate-compliance decisions.
   requireAiApproval: true
   # If signer secrets are missing, the workflow sends email alerts instead of
   # casting vetoes. If email is also missing, it fails hard.

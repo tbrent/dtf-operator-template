@@ -40,6 +40,11 @@ on:
         required: false
         default: ''
         type: string
+      abandon_submitted_veto_tx_hash:
+        description: Dangerous recovery assertion; exact submitted veto tx hash independently verified safe to abandon
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -225,6 +230,7 @@ jobs:
             -e PROPOSAL_FROM_BLOCK_INPUT \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS \
+            -e DEFENDER_ABANDON_SUBMITTED_VETO_TX_HASH \
             -e PROPOSER_KEYSTORE_JSON_B64 \
             -e PROPOSER_KEYSTORE_PASSWORD \
             -e DEFENDER_KEYSTORE_JSON_B64 \
@@ -269,6 +275,7 @@ jobs:
           PROPOSAL_FROM_BLOCK_INPUT: ${{ inputs.proposal_from_block }}
           DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
           DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
+          DEFENDER_ABANDON_SUBMITTED_VETO_TX_HASH: ${{ inputs.abandon_submitted_veto_tx_hash }}
 
       - name: Stop inference sidecar
         if: always()
