@@ -1,4 +1,4 @@
-# Public fork operator configuration.
+# Non-secret operator configuration for a private fork.
 # Top-level folioAddress and chainId are always the Proposer target. Defender
 # also uses them when defender.folios is omitted or empty.
 version: 1
@@ -47,7 +47,8 @@ proposer:
 
 defender:
   # The workflow wakes up every 15 minutes, then this frequency gate skips extra
-  # runs so forks can tune cadence from this one config file.
+  # runs so forks can tune cadence from this one config file. This value may be
+  # raised above 30; GitHub schedules are best-effort, so actual gaps can be longer.
   frequencyMinutes: 30
   runHours: 1
   pollSeconds: 20
