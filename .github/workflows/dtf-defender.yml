@@ -65,10 +65,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Restore defender state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .defender-state
           key: defender-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -77,7 +77,7 @@ jobs:
             defender-state-${{ github.repository_id }}-
 
       - name: Restore operator alert state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .operator-alert-state
           key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -86,7 +86,7 @@ jobs:
             operator-alert-state-${{ github.repository_id }}-
 
       - name: Restore encrypted CLIProxy auth cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cliproxy-auth-cache/cliproxy-auth.tgz.enc
           key: cliproxy-auth-cache-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -372,21 +372,21 @@ jobs:
 
       - name: Save encrypted CLIProxy auth cache
         if: always() && steps.encrypt_cliproxy_auth_cache.outputs.cache_ready == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cliproxy-auth-cache/cliproxy-auth.tgz.enc
           key: cliproxy-auth-cache-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Save defender state
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .defender-state
           key: defender-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Save operator alert state
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .operator-alert-state
           key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
