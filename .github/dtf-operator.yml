@@ -35,7 +35,7 @@ proposer:
   # DTF/Folio's first relevant governance proposal, then tune chunking only if
   # your RPC provider cannot handle large eth_getLogs ranges.
   proposalScan:
-    fromBlock: 45950000
+    fromBlock:
     logChunkBlocks:
     logChunkDelayMs:
 
