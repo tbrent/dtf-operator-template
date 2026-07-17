@@ -4,8 +4,8 @@
 version: 1
 
 # Required. Set both values for the DTF/Folio the Proposer operates.
-folioAddress: "0xd45e4170834a803D084b2bB145c9ad08f3BdD651"
-chainId: 8453
+folioAddress: "0xa0Fe4e0aEca5479705ce996615B2EACB6b6a10Fb"
+chainId: 56
 
 proposer:
   # Scheduled workflow defaults. The workflow wakes up frequently, then the
@@ -18,10 +18,10 @@ proposer:
   # Address used only for dry-run optimistic proposal simulation. This must be
   # an address with available optimistic proposal throttle charges on the
   # trading governor. Set this to the signer address printed by scripts/setup-github-proposer.
-  optimisticProposerAddress: "0x655D755E02da56C469A8a5a8b0EFB80d033A199E"
+  optimisticProposerAddress:
 
   # Optional. Set only when this workflow should open auctions and run CowBot.
-  auctionLauncherAddress: "0x655D755E02da56C469A8a5a8b0EFB80d033A199E"
+  auctionLauncherAddress:
 
   # Optional. Leave blank for the runtime defaults.
   minOpenAuctionValueUsd:
@@ -54,29 +54,44 @@ defender:
   pollSeconds: 20
   waitActiveSeconds: 120
 
-  # Multi-Folio production example only. When this list is present and non-empty,
+  # When this list is present and non-empty,
   # it replaces the top-level target for Defender only; Proposer still targets
   # the top-level Folio. Keep one entry per Defender target and set fromBlock to
   # a block before that Folio's first relevant governance proposal.
-  # folios:
-  #   - folioAddress: "<FIRST_FOLIO_ADDRESS>"
-  #     chainId: 56
-  #     governorAddress: "<FIRST_TRADING_GOVERNOR_ADDRESS>"
-  #     proposalScan:
-  #       fromBlock: 12345678
-  #   - folioAddress: "<SECOND_FOLIO_ADDRESS>"
-  #     chainId: 8453
-  #     governorAddress: "<SECOND_TRADING_GOVERNOR_ADDRESS>"
-  #     proposalScan:
-  #       fromBlock: 23456789
+  folios:
+    - folioAddress: "0xa0Fe4e0aEca5479705ce996615B2EACB6b6a10Fb" # PHOTON
+      chainId: 56
+      governorAddress: "0xf6F73C085b22D791705b8173712F37A2FeEE58e1"
+      proposalScan:
+        fromBlock: 103053083
+    - folioAddress: "0xD7cE7a841310982AcD976D1a6fe7BB6063c5689D" # BUILDOUT
+      chainId: 56
+      governorAddress: "0x11DdDE7845764C5317042c51e7e5EC665db33055"
+      proposalScan:
+        fromBlock: 103451524
+    - folioAddress: "0x290bCc0Fd5096cC3261AE2021841c7BC67Cb0f51" # POWER
+      chainId: 56
+      governorAddress: "0x056CCC0F4CEDc4246F79cBf5Fe40F4D170Cb6769"
+      proposalScan:
+        fromBlock: 103451586
+    - folioAddress: "0xf571Fe3F0d74521Bc7310B111Faea931C748f27B" # NEOCLOUD
+      chainId: 56
+      governorAddress: "0x72b4Be10fBb28Af7b227C1db48EdC3f2B111Ec6E"
+      proposalScan:
+        fromBlock: 103452200
+    - folioAddress: "0x75617e7653f86f074Cc30b9Fd4eBf52bA9b62247" # ROBOTS
+      chainId: 56
+      governorAddress: "0x736242C3fB5cFeEE70267D5C3B123211b760C966"
+      proposalScan:
+        fromBlock: 103449567
 
   # Legacy single-Folio fallback. This is used only when defender.folios is
   # omitted or empty. Tune chunking only if your RPC provider cannot handle
   # large eth_getLogs ranges.
   proposalScan:
-    fromBlock: 46032943
-    logChunkBlocks:
-    logChunkDelayMs:
+    fromBlock:
+    logChunkBlocks: 50000
+    logChunkDelayMs: 200
 
   notifications:
     # May also be supplied through DEFENDER_EMAIL_TO GitHub Secret.
