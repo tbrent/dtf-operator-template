@@ -94,6 +94,15 @@ jobs:
             operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-
             operator-alert-state-${{ github.repository_id }}-
 
+      - name: Restore proposer lifecycle state
+        uses: actions/cache/restore@v4
+        with:
+          path: proposer-data/.proposer-state
+          key: proposer-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            proposer-state-${{ github.repository_id }}-${{ github.ref_name }}-
+            proposer-state-${{ github.repository_id }}-
+
       - name: Restore encrypted CLIProxy auth cache
         uses: actions/cache/restore@v4
         with:
@@ -381,6 +390,13 @@ jobs:
         with:
           path: .cliproxy-auth-cache/cliproxy-auth.tgz.enc
           key: cliproxy-auth-cache-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save proposer lifecycle state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: proposer-data/.proposer-state
+          key: proposer-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Summarize proposer artifacts
         if: always() && steps.pull_image.outcome == 'success'
