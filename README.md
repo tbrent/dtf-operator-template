@@ -2,7 +2,7 @@
 
 Forkable deployment template for running Reserve DTF proposer and defender automation from private GitHub Actions.
 
-Fork this repository into a private repository. The private fork owns the public operator config, GitHub Secrets, GitHub Variables, schedules, artifacts, and defender state for GitHub-hosted operation. Runtime code is not built in this repository; workflows consume the published image from `ghcr.io/reserve-protocol/dtf-operator` unless `DTF_OPERATOR_IMAGE` is overridden.
+This template is currently intended for internal operators and testing. Fork it into a private repository. The private fork owns the non-secret operator config, GitHub Secrets, GitHub Variables, schedules, artifacts, and defender state for GitHub-hosted operation. Runtime code is not built in this repository; workflows consume the published image from `ghcr.io/reserve-protocol/dtf-operator` unless `DTF_OPERATOR_IMAGE` is overridden.
 
 Do not put operator secrets in public repositories. Do not open deployment-config PRs against `reserve-protocol/dtf-operator` or `reserve-protocol/dtf-operator-template`.
 
@@ -10,7 +10,7 @@ Do not put operator secrets in public repositories. Do not open deployment-confi
 
 - `DTF Proposer` wakes on a schedule, checks onchain lifecycle state, and exits unless a rebalance lifecycle action is due.
 - `DTF Defender` wakes on a schedule, checks the configured Folio target or targets for new optimistic proposals, and exits unless a new `startRebalance()` proposal needs review.
-- Public operator configuration lives in `.github/dtf-operator.yml`.
+- Non-secret operator configuration lives in `.github/dtf-operator.yml`.
 - Secret material lives in GitHub Secrets or local Foundry keystores, never in the repository.
 - Both workflows run the same Docker runtime image by default.
 
@@ -44,6 +44,8 @@ ghcr.io/reserve-protocol/dtf-operator:stable
 
 Set repository variable `DTF_OPERATOR_IMAGE` to choose a different channel or pin a specific image. Use `ghcr.io/reserve-protocol/dtf-operator:main` for integration testing, or a `sha-*` or `v*` tag when a fork needs immutable runtime selection. The default GHCR package is public, so the workflows pull it without GHCR credentials. Deployment workflows do not build from source and do not use `SDK_READ_TOKEN`.
 
+The workflows separately pin the tested CLIProxyAPI sidecar by immutable image digest. Leave `CLI_PROXY_IMAGE` unset for that default. Set it only when deliberately testing another digest; mutable tags such as `latest` are not recommended for production operators.
+
 ## Supported Chains
 
 Set top-level `folioAddress` and `chainId` in `.github/dtf-operator.yml` for the DTF that Proposer operates. Defender uses that same target when `defender.folios` is omitted or empty. For multi-Folio Defender operation, each `defender.folios` entry supplies its own `folioAddress`, `chainId`, `governorAddress`, and `proposalScan.fromBlock`.
@@ -63,6 +65,7 @@ Common runtime inputs:
 ```text
 RPC_URL or BASE_RPC_URL / MAINNET_RPC_URL / BSC_RPC_URL
 CLIPROXY_AUTH_TGZ_B64
+INFERENCE_API_KEY
 ```
 
 Scout ETL endpoint, provider, and short-term API key access are owned by the published runtime image. Forks do not configure Scout ETL.
@@ -77,15 +80,20 @@ Optional repository variables:
 
 ```text
 DTF_OPERATOR_IMAGE
+CLI_PROXY_IMAGE
 MIN_SIGNER_BALANCE_WEI
-CODEX_AUTH_ALERT_COOLDOWN_SECONDS
+INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS
 PROPOSER_CODEX_MODEL
 PROPOSER_CODEX_REASONING_EFFORT
 DEFENDER_CODEX_MODEL
 DEFENDER_CODEX_REASONING_EFFORT
 ```
 
-Codex authentication failures send Resend email alerts when `RESEND_API_KEY` and `DEFENDER_EMAIL_TO` are configured. Alerts are rate-limited by persisted workflow state; `CODEX_AUTH_ALERT_COOLDOWN_SECONDS` defaults to 86400 seconds.
+Before scanning or proposing, each workflow queries CLIProxyAPI's authenticated management endpoint to verify that an active Codex OAuth credential is loaded. This check performs no model inference and consumes no subscription tokens. A failed check stops the operator before onchain work and sends a Resend email when `RESEND_API_KEY` and `DEFENDER_EMAIL_TO` are configured. Alerts are rate-limited by persisted workflow state; `INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS` defaults to 86400 seconds.
+
+The management endpoint is reachable only inside the job's private Docker network. The sidecar port exposed on the runner remains bound to `127.0.0.1`, the control panel is disabled, and the management key is the same per-repository `INFERENCE_API_KEY` Secret used by the runtime.
+
+`INFERENCE_API_KEY` is not an OpenAI key and does not grant access to a model account. It is a random local gateway and management password for this repository's sidecar. Both setup helpers generate and upload a fresh value when the environment variable `INFERENCE_API_KEY` is unset; set that environment variable only when you deliberately want to choose the value.
 
 `CLIPROXY_AUTH_TGZ_B64` is a base64-encoded CLIProxy OAuth auth archive. It bootstraps each runner and encrypts the refreshed CLIProxy auth archive saved in GitHub Actions cache after each run, so refresh-token rotations survive ephemeral runners. If you replace the bootstrap archive, update `CLIPROXY_AUTH_TGZ_B64`; the old encrypted cache will fail to decrypt and the next workflow run will bootstrap from the new secret.
 
@@ -161,6 +169,8 @@ defender:
 ```
 
 Top-level `folioAddress` and `chainId` always identify the Proposer target. They are also the backward-compatible single-Folio Defender target when `defender.folios` is omitted or empty. `proposer.rebalanceCadence` is the deterministic auction cadence. For example, `30d` means the next rebalance auction should start at least 30 days after the first auction from the latest successful rebalance.
+
+`defender.frequencyMinutes` is configurable and may be raised above `30`. It gates the workflow's 15-minute wakeups; it is not a hard maximum delay. GitHub Actions schedules are best-effort, so an eligible run can start later than the configured interval during platform congestion or while the repository-wide concurrency lock is occupied.
 
 Set `proposer.proposalScan.fromBlock` before enabling scheduled runs. In legacy single-Folio Defender mode, also set `defender.proposalScan.fromBlock`; in multi-Folio mode, set `proposalScan.fromBlock` on every `defender.folios` entry instead. Use a chain block before the relevant DTF/Folio's first governance proposal so first-run log scans are bounded and RPC providers do not need to scan from genesis.
 
@@ -293,7 +303,3 @@ The setup helpers support existing keystores with `--keystore` and `--keystore-p
 ## Source Repository
 
 Runtime source, image builds, tests, and local Docker Compose helpers live in `reserve-protocol/dtf-operator`. Open PRs there only for shared source, image, runtime-contract, or local-runner changes. Do not open per-operator config PRs upstream.
-
-## TODO
-
-- Make this template repository public once setup docs and fork-safety messaging are ready for external operators.

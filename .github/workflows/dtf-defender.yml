@@ -53,6 +53,7 @@ permissions:
 
 env:
   DTF_OPERATOR_IMAGE: ${{ vars.DTF_OPERATOR_IMAGE || 'ghcr.io/reserve-protocol/dtf-operator:stable' }}
+  CLI_PROXY_IMAGE: ${{ vars.CLI_PROXY_IMAGE || 'eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9' }}
 
 jobs:
   defender:
@@ -172,7 +173,7 @@ jobs:
           host: "0.0.0.0"
           port: 8317
           remote-management:
-            allow-remote: false
+            allow-remote: true
             secret-key: ""
             disable-control-panel: true
           auth-dir: "/root/.cli-proxy-api"
@@ -192,9 +193,10 @@ jobs:
             --name cliproxy \
             --network dtf-inference \
             -p 127.0.0.1:8317:8317 \
+            -e MANAGEMENT_PASSWORD \
             -v "$PWD/cliproxy.config.yaml:/CLIProxyAPI/config.yaml:ro" \
             -v "$PWD/cliproxy-auth:/root/.cli-proxy-api" \
-            "${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}" \
+            "$CLI_PROXY_IMAGE" \
             /CLIProxyAPI/CLIProxyAPI -config /CLIProxyAPI/config.yaml
           for _ in {1..60}; do
             if curl -sf -H "Authorization: Bearer $INFERENCE_API_KEY" http://127.0.0.1:8317/v1/models >/dev/null; then
@@ -208,7 +210,35 @@ jobs:
           exit 2
         env:
           INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
-          CLI_PROXY_IMAGE: ${{ vars.CLI_PROXY_IMAGE }}
+          MANAGEMENT_PASSWORD: ${{ secrets.INFERENCE_API_KEY }}
+
+      - name: Check CLIProxyAPI OAuth health
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .operator-alert-state
+          docker run --rm \
+            --network dtf-inference \
+            -e INFERENCE_BASE_URL \
+            -e INFERENCE_API_KEY \
+            -e INFERENCE_ALERT_STATE_DIR=/alert-state \
+            -e INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS \
+            -e RESEND_API_KEY \
+            -e DEFENDER_EMAIL_TO \
+            -e DEFENDER_EMAIL_FROM \
+            -e GITHUB_SERVER_URL \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_RUN_ID \
+            -v "$PWD/.operator-alert-state:/alert-state" \
+            "$DTF_OPERATOR_IMAGE" \
+            node dist/cli/check-cliproxy-auth.js
+        env:
+          INFERENCE_BASE_URL: http://cliproxy:8317/v1
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO || vars.DEFENDER_EMAIL_TO }}
+          DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
 
       - name: Run defender
         shell: bash
@@ -224,6 +254,7 @@ jobs:
             -e INFERENCE_BASE_URL \
             -e INFERENCE_API_KEY \
             -e INFERENCE_ALERT_STATE_DIR=/alert-state \
+            -e INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS \
             -e ONCE_INPUT \
             -e RUN_HOURS_INPUT \
             -e POLL_SECONDS_INPUT \
@@ -256,13 +287,14 @@ jobs:
         env:
           INFERENCE_BASE_URL: http://cliproxy:8317/v1
           INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+          INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
           PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
           PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
           DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
           DEFENDER_KEYSTORE_PASSWORD: ${{ secrets.DEFENDER_KEYSTORE_PASSWORD }}
           DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO }}
+          DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO || vars.DEFENDER_EMAIL_TO }}
           DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
           FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT || secrets.FOUNDRY_ACCOUNT }}
           RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}

@@ -5,7 +5,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/setup-github-proposer [options]
 
-Uploads CLIProxy auth and proposer signer secrets to a private operator fork.
+Uploads CLIProxy auth, a generated local gateway key, and proposer signer secrets
+to a private operator fork.
 
 Required:
   --keystore <path> or --generate-keystore-dir <dir>
@@ -156,6 +157,7 @@ address="$(cast wallet address --keystore "$keystore" --password-file "$keystore
 
 echo "Setting proposer GitHub Secrets${repo:+ for $repo}"
 set_base64_file_secret CLIPROXY_AUTH_TGZ_B64 "$cliproxy_auth_archive"
+set_secret INFERENCE_API_KEY "${INFERENCE_API_KEY:-$(random_password)}"
 set_secret PROPOSER_KEYSTORE_JSON_B64 "$(base64_file "$keystore")"
 set_secret PROPOSER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
 set_secret FOUNDRY_ACCOUNT "$foundry_account"
