@@ -1,10 +1,10 @@
 # dtf-operator-template
 
-Forkable deployment template for running Reserve DTF proposer and defender automation from private GitHub Actions.
+Forkable deployment template for running Reserve DTF proposer and defender automation from GitHub Actions.
 
-This template is currently intended for internal operators and testing. Fork it into a private repository. The private fork owns the non-secret operator config, GitHub Secrets, GitHub Variables, schedules, artifacts, and defender state for GitHub-hosted operation. Runtime code is not built in this repository; workflows consume the published image from `ghcr.io/reserve-protocol/dtf-operator` unless `DTF_OPERATOR_IMAGE` is overridden.
+This template is currently intended for internal operators and testing. Copy it into a dedicated operator repository. A private repository is the default; a public repository is also supported when its non-secret configuration, commit history, workflow logs, artifacts, and cache blobs are safe to disclose. Standard GitHub-hosted runners are free for public repositories. The operator repository owns its GitHub Secrets, GitHub Variables, schedules, artifacts, and defender state. Runtime code is not built here; workflows consume the published image from `ghcr.io/reserve-protocol/dtf-operator` unless `DTF_OPERATOR_IMAGE` is overridden.
 
-Do not put operator secrets in public repositories. Do not open deployment-config PRs against `reserve-protocol/dtf-operator` or `reserve-protocol/dtf-operator-template`.
+Do not commit operator secrets to any repository. Public repositories must keep signer keys, RPC credentials, inference credentials, and email credentials exclusively in GitHub Secrets. Do not open deployment-config PRs against `reserve-protocol/dtf-operator` or `reserve-protocol/dtf-operator-template`.
 
 ## Runtime Model
 
@@ -20,7 +20,7 @@ The mainline setup uses one operator signer for proposing, launching auctions, a
 
 ## Quick Start
 
-1. Fork this template into a private repository and enable GitHub Actions in the fork.
+1. Create a dedicated operator repository from this template and enable GitHub Actions. Use a public repository only when its non-secret operational history may be disclosed.
 2. Leave `DTF_ACTIONS_ENABLED` unset until config and secrets are ready.
 3. Choose the top-level DTF/Folio that Proposer will operate and, if needed, the additional Folios that Defender will protect.
 4. Edit `.github/dtf-operator.yml` for those targets.
@@ -142,7 +142,7 @@ When Defender-specific signer secrets are unset, the unchanged workflows pass pr
 
 ## Operator Config
 
-Edit `.github/dtf-operator.yml` in your private fork:
+Edit `.github/dtf-operator.yml` in your operator repository:
 
 ```yaml
 version: 1

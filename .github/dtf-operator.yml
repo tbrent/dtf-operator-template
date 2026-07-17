@@ -1,4 +1,4 @@
-# Non-secret operator configuration for a private fork.
+# Non-secret operator configuration for this deployment repository.
 # Top-level folioAddress and chainId are always the Proposer target. Defender
 # also uses them when defender.folios is omitted or empty.
 version: 1
@@ -96,7 +96,7 @@ defender:
 
   notifications:
     # May also be supplied through DEFENDER_EMAIL_TO GitHub Secret.
-    emailTo: taylor.brent@reserve.org
+    emailTo:
 
   # AI is the sole authority for deciding mandate compliance and whether a
   # proposal should be approved or vetoed. Deterministic processing supports
