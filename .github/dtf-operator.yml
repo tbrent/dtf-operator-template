@@ -71,8 +71,9 @@ defender:
   #       fromBlock: 23456789
 
   # Legacy single-Folio fallback. This is used only when defender.folios is
-  # omitted or empty. Tune chunking only if your RPC provider cannot handle
-  # large eth_getLogs ranges.
+  # omitted or empty. The runtime automatically shrinks rejected or timed-out
+  # eth_getLogs ranges and checkpoints each successful chunk. Leave chunking
+  # blank unless an RPC provider needs an explicit operational override.
   proposalScan:
     fromBlock:
     logChunkBlocks:

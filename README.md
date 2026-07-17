@@ -174,6 +174,8 @@ Top-level `folioAddress` and `chainId` always identify the Proposer target. They
 
 Set `proposer.proposalScan.fromBlock` before enabling scheduled runs. In legacy single-Folio Defender mode, also set `defender.proposalScan.fromBlock`; in multi-Folio mode, set `proposalScan.fromBlock` on every `defender.folios` entry instead. Use a chain block before the relevant DTF/Folio's first governance proposal so first-run log scans are bounded and RPC providers do not need to scan from genesis.
 
+Defender automatically shrinks `eth_getLogs` block ranges when an RPC rejects or times out on a configured range. It saves discovered proposals and advances its reorg-aware cursor after every successful chunk, so a later provider failure resumes from completed work instead of restarting the historical scan. Leave `defender.proposalScan.logChunkBlocks` and `logChunkDelayMs` blank for normal operation; use them only as explicit provider-specific overrides.
+
 `proposer.optimisticProposerAddress` is the generated proposer signer address used for dry-run optimistic proposal simulation. In the mainline setup, set `proposer.auctionLauncherAddress` to the same address after granting that signer `AUCTION_LAUNCHER_ROLE`.
 
 ### Multi-Folio Defender
