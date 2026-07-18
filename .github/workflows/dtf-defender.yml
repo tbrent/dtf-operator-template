@@ -186,6 +186,17 @@ jobs:
           auth_files="$(curl -fsS -H "Authorization: Bearer $INFERENCE_API_KEY" http://127.0.0.1:8317/v0/management/auth-files)"
           [[ "$auth_files" != *'"files":[]'* ]] || { echo 'GitStore contains no OAuth records' >&2; exit 2; }
 
+      - name: Smoke test GitStore-backed OAuth inference
+        shell: bash
+        env:
+          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
+        run: |
+          set -euo pipefail
+          response="$(curl -fsS -H "Authorization: Bearer $INFERENCE_API_KEY" -H 'Content-Type: application/json' \
+            --data '{"model":"gpt-5.5","messages":[{"role":"user","content":"Reply with exactly OK."}],"stream":false}' \
+            http://127.0.0.1:8317/v1/chat/completions)"
+          jq -e '.choices | type == "array" and length > 0' <<<"$response" >/dev/null
+
       - name: Run defender
         shell: bash
         env:
