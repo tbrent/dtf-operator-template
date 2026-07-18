@@ -4,21 +4,21 @@
 version: 1
 
 # Required. Set both values for the DTF/Folio the Proposer operates.
-folioAddress:
-chainId:
+folioAddress: "0xd45e4170834a803D084b2bB145c9ad08f3BdD651"
+chainId: 8453
 
 proposer:
   # Scheduled workflow defaults. The workflow wakes up frequently, then the
   # proposer script targets auction starts at least this far apart.
-  rebalanceCadence: 30d
-  runHours: 4
+  rebalanceCadence: 1m
+  runHours: 0.1
   pollSeconds: 20
   cowbotSeconds: 30
 
   # Address used only for dry-run optimistic proposal simulation. This must be
   # an address with available optimistic proposal throttle charges on the
   # trading governor. Set this to the signer address printed by scripts/setup-github-proposer.
-  optimisticProposerAddress:
+  optimisticProposerAddress: "0xcaCdB557966F13B175ca9962904fB79F82b67232"
 
   # Optional. Set only when this workflow should open auctions and run CowBot.
   auctionLauncherAddress:
@@ -26,7 +26,7 @@ proposer:
   # Optional. Leave blank for the runtime defaults.
   minOpenAuctionValueUsd:
   cowbotMinValueUsd:
-  allowSyntheticSignalStrategy: false
+  allowSyntheticSignalStrategy: true
   inference:
     model: gpt-5.5
     reasoningEffort: medium
@@ -35,9 +35,9 @@ proposer:
   # DTF/Folio's first relevant governance proposal, then tune chunking only if
   # your RPC provider cannot handle large eth_getLogs ranges.
   proposalScan:
-    fromBlock:
-    logChunkBlocks:
-    logChunkDelayMs:
+    fromBlock: 48000000
+    logChunkBlocks: 5000
+    logChunkDelayMs: 100
 
   # Optional display/link overrides.
   display:
@@ -53,6 +53,22 @@ defender:
   runHours: 1
   pollSeconds: 20
   waitActiveSeconds: 120
+
+  # Maximum total optimistic-proposal lifetime: vetoDelay + vetoPeriod. This is
+  # deliberately not only vetoPeriod. The runtime resolves 14d to 1,209,600
+  # seconds and uses it to validate timing and bound normal proposal discovery.
+  # Treat it as a permanent governance invariant: no proposal may ever be created
+  # while the governor is configured with a longer total lifetime.
+  maxVetoDelayPlusPeriod: 14d
+
+  # Required before authoritative mode is armed. Allow only the known deployed
+  # governor implementations for the chains Defender protects; do not use a
+  # wildcard, a proxy address, or an unverified hash. One entry is required for
+  # every supported implementation, including every chain-specific deployment.
+  supportedGovernorImplementations:
+    - chainId: 8453
+      implementationAddress: "0x29EDbbbE7415cb8637e0F62D5d19dcB3A5bC3229"
+      codeHash: "0x2eb7fe8ac9eec1ece0cdca450b0b3f3cd9a51499763e4859b9475df6765e670a"
 
   # Multi-Folio production example only. When this list is present and non-empty,
   # it replaces the top-level target for Defender only; Proposer still targets
@@ -75,9 +91,9 @@ defender:
   # eth_getLogs ranges and checkpoints each successful chunk. Leave chunking
   # blank unless an RPC provider needs an explicit operational override.
   proposalScan:
-    fromBlock:
-    logChunkBlocks:
-    logChunkDelayMs:
+    fromBlock: 48000000
+    logChunkBlocks: 5000
+    logChunkDelayMs: 100
 
   notifications:
     # May also be supplied through DEFENDER_EMAIL_TO GitHub Secret.

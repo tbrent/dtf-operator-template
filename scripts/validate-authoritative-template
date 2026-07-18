@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+proposer="$root/.github/workflows/dtf-proposer.yml"
+defender="$root/.github/workflows/dtf-defender.yml"
+config="$root/.github/dtf-operator.yml"
+
+for file in "$proposer" "$defender" "$config"; do
+  [[ -s "$file" ]] || { echo "missing required file: $file" >&2; exit 2; }
+done
+
+if grep -En 'actions/cache|cliproxy-auth-cache|dtf-codex-auth' "$proposer" "$defender"; then
+  echo 'authoritative workflows must not use legacy Actions cache or shared OAuth lock' >&2
+  exit 2
+fi
+
+for workflow in "$proposer" "$defender"; do
+  for required in GITSTORE_GIT_URL GITSTORE_GIT_TOKEN GITSTORE_GIT_BRANCH GITSTORE_LOCAL_PATH DTF_OPERATOR_JOURNAL_IMAGE; do
+    grep -Fq "$required" "$workflow" || { echo "missing workflow contract in $workflow: $required" >&2; exit 2; }
+  done
+done
+grep -Fq -- '-e PROPOSER_SIGNER_ADDRESS' "$proposer" || { echo 'Proposer must pass its declared signer address to the runtime' >&2; exit 2; }
+grep -Fq -- '-e DEFENDER_SIGNER_ADDRESS' "$defender" || { echo 'Defender must pass its declared signer address to the runtime' >&2; exit 2; }
+for required in OPERATOR_STATE_GIT_URL OPERATOR_STATE_GIT_BRANCH OPERATOR_STATE_GIT_TOKEN OPERATOR_STATE_MODE; do
+  grep -Fq "$required" "$defender" || { echo "missing Defender authority contract: $required" >&2; exit 2; }
+  if grep -Fq "$required" "$proposer"; then
+    echo "Proposer must not consume Defender-only authority input: $required" >&2
+    exit 2
+  fi
+done
+
+if grep -En 'defenderMaxVetoLifetime|DEFENDER_MAX_VETO_LIFETIME_SECONDS|ABANDON_SUBMITTED_VETO|read-defender-veto-lifetime|read-defender-supported-governors' "$proposer" "$defender" "$config" "$root/README.md"; then
+  echo 'obsolete Defender workflow contract remains' >&2
+  exit 2
+fi
+if grep -En '^operatorState:' "$config"; then
+  echo 'authority mode belongs to the workflow environment, not the runtime public config schema' >&2
+  exit 2
+fi
+grep -Fq 'maxVetoDelayPlusPeriod: 14d' "$config" || { echo 'expected 14d total veto lifetime default' >&2; exit 2; }
+grep -Fq 'supportedGovernorImplementations:' "$config" || { echo 'missing mandatory governor implementation allowlist' >&2; exit 2; }
+grep -Fq 'forbids force-pushes and deletion' "$root/README.md" || { echo 'missing operator authority branch protection requirement' >&2; exit 2; }
+grep -Fq 'operator_state seed' "$root/README.md" || { echo 'missing executable Defender journal seed procedure' >&2; exit 2; }
+grep -Fq 'operator_state cutover' "$root/README.md" || { echo 'missing executable Defender journal cutover procedure' >&2; exit 2; }
+grep -Fq 'target GitStore already contains OAuth records' "$root/scripts/seed-cliproxy-gitstore" || { echo 'CPA seed must refuse a non-empty GitStore' >&2; exit 2; }
+if command -v ruby >/dev/null 2>&1; then
+  ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f) }' "$proposer" "$defender" "$config"
+fi
+
+echo 'authoritative template validation passed'

@@ -26,6 +26,7 @@ data/
 proposer-data/
 defender-data/
 dtf-runtime/
+cliproxy-gitstore/
 
 # OS/editor noise
 .DS_Store

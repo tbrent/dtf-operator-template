@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: GITSTORE_GIT_TOKEN=<scoped-write-token> scripts/seed-cliproxy-gitstore \
+  --git-url <private-repo-url> --git-branch <branch> [options]
+
+Imports existing CLIProxy OAuth JSON records into an empty, dedicated GitStore.
+It never prints a token, archive, OAuth record, or remote URL with credentials.
+
+Options:
+  --git-url <url>                 GitStore remote URL (no embedded credentials)
+  --git-branch <branch>           GitStore branch
+  --git-username <username>       Optional HTTP username
+  --cliproxy-auth-dir <path>      Defaults to ~/.cli-proxy-api
+  --cliproxy-image <image>        Defaults to the workflow's pinned image
+  -h, --help                      Show this help
+EOF
+}
+
+die() { echo "error: $*" >&2; exit 2; }
+
+git_url=""
+git_branch=""
+git_username=""
+auth_dir="${HOME:-.}/.cli-proxy-api"
+cliproxy_image="eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --git-url) git_url="${2:-}"; shift 2 ;;
+    --git-branch) git_branch="${2:-}"; shift 2 ;;
+    --git-username) git_username="${2:-}"; shift 2 ;;
+    --cliproxy-auth-dir) auth_dir="${2:-}"; shift 2 ;;
+    --cliproxy-image) cliproxy_image="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ -n "$git_url" && -n "$git_branch" ]] || die "--git-url and --git-branch are required"
+case "$git_url" in
+  http://*@*|https://*@*) die "--git-url must not contain credentials" ;;
+esac
+[[ -n "${GITSTORE_GIT_TOKEN:-}" ]] || die "GITSTORE_GIT_TOKEN is required"
+[[ -d "$auth_dir" ]] || die "CLIProxy auth directory not found: $auth_dir"
+command -v docker >/dev/null 2>&1 || die "docker is required"
+command -v curl >/dev/null 2>&1 || die "curl is required"
+
+umask 077
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-gitstore.XXXXXX")"
+container="cliproxy-gitstore-seed-$$"
+management_password="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+export MANAGEMENT_PASSWORD="$management_password"
+cleanup() {
+  docker rm -f "$container" >/dev/null 2>&1 || true
+  rm -rf "$state_dir"
+}
+trap cleanup EXIT
+
+docker run -d --name "$container" -p 127.0.0.1:8317:8317 \
+  -e GITSTORE_GIT_URL="$git_url" -e GITSTORE_GIT_BRANCH="$git_branch" \
+  -e GITSTORE_GIT_USERNAME="$git_username" -e GITSTORE_GIT_TOKEN \
+  -e GITSTORE_LOCAL_PATH=/state -e MANAGEMENT_PASSWORD \
+  -v "$state_dir:/state" "$cliproxy_image" /CLIProxyAPI/CLIProxyAPI >/dev/null
+
+initial_auth_files=""
+for _ in {1..60}; do
+  if initial_auth_files="$(curl -sf -H "Authorization: Bearer $management_password" http://127.0.0.1:8317/v0/management/auth-files)"; then
+    break
+  fi
+  sleep 1
+done
+[[ -n "$initial_auth_files" ]] || die "CLIProxyAPI did not become ready"
+[[ "$initial_auth_files" == *'"files":[]'* ]] || die "target GitStore already contains OAuth records"
+
+# GitStore initializes config/config.yaml from the CLIProxy template. Remove
+# template API keys before use; the runner keeps the sidecar on a private Docker
+# network and supplies its management key only through the environment.
+curl -fsS -X PUT -H "Authorization: Bearer $management_password" -H 'Content-Type: application/json' \
+  --data '[]' http://127.0.0.1:8317/v0/management/api-keys >/dev/null
+
+count=0
+while IFS= read -r -d '' file; do
+  name="$(basename "$file")"
+  [[ "$name" =~ ^[A-Za-z0-9._-]+\.json$ ]] || die "unsafe OAuth filename: $name"
+  curl -fsS -X POST -H "Authorization: Bearer $management_password" -H 'Content-Type: application/json' \
+    --data-binary "@$file" "http://127.0.0.1:8317/v0/management/auth-files?name=$name" >/dev/null
+  count=$((count + 1))
+done < <(find "$auth_dir" -maxdepth 1 -type f -name '*.json' -print0)
+
+(( count > 0 )) || die "no OAuth JSON files found in $auth_dir"
+echo "gitstore_seeded_auth_records=$count"
+echo "next_step=verify_the_private_repository_contains_auths_and_config_then_remove_CLIPROXY_AUTH_TGZ_B64_and_arm_git-authoritative"
