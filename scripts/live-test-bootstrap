@@ -75,8 +75,8 @@ if [[ "$proposer_identity" == "$defender_identity" && "${ALLOW_SHARED_CPA_LOGIN_
   echo 'error: Proposer and Defender CPA OAuth records resolve to the same account' >&2
   exit 2
 fi
-cp "$proposer_auth" "$work/proposer-auth/$(basename "$proposer_auth")"
-cp "$defender_auth" "$work/defender-auth/$(basename "$defender_auth")"
+cp "$proposer_auth" "$work/proposer-auth/proposer-oauth.json"
+cp "$defender_auth" "$work/defender-auth/defender-oauth.json"
 
 export GITSTORE_GIT_TOKEN="$CPA_PROPOSER_GITSTORE_TOKEN"
 scripts/seed-cliproxy-gitstore \

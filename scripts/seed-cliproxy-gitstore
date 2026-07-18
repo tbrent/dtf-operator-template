@@ -55,7 +55,9 @@ management_password="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 export MANAGEMENT_PASSWORD="$management_password"
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
-  rm -rf "$state_dir"
+  docker run --rm --entrypoint sh -v "$state_dir:/state" "$cliproxy_image" \
+    -c 'chmod -R a+rwX /state' >/dev/null 2>&1 || true
+  rm -rf "$state_dir" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 

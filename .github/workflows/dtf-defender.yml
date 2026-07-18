@@ -94,11 +94,10 @@ jobs:
   defender:
     if: ${{ github.repository == 'tbrent/dtf-operator-template' && github.event_name == 'workflow_dispatch' && github.ref_name == 'test/gitstore-live-d45e' && inputs.proposal_from_block != 'bootstrap' && vars.OPERATOR_AUTHORITY_MODE == 'git-authoritative' }}
     runs-on: ubuntu-latest
-    # This lock serializes only Defender's signer. It does not queue behind a
-    # long proposer. Safe concurrent operation requires the distinct CPA store
-    # and signer documented in README.md.
+    # This disposable smoke branch shares one CPA login across distinct stores,
+    # so Proposer and Defender must use the same serialization domain.
     concurrency:
-      group: dtf-defender-signer-${{ github.repository_id }}
+      group: dtf-live-test-shared-cpa-${{ github.repository_id }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -145,7 +144,7 @@ jobs:
           done
           [[ "$CPA_GITSTORE_URL:$CPA_GITSTORE_BRANCH" != "$CPA_OTHER_GITSTORE_URL:$CPA_OTHER_GITSTORE_BRANCH" ]] || { echo 'Proposer and Defender CPA GitStore write domains must differ' >&2; exit 2; }
           [[ "$OPERATOR_STATE_GIT_URL:$OPERATOR_STATE_GIT_BRANCH" != "$CPA_GITSTORE_URL:$CPA_GITSTORE_BRANCH" && "$OPERATOR_STATE_GIT_URL:$OPERATOR_STATE_GIT_BRANCH" != "$CPA_OTHER_GITSTORE_URL:$CPA_OTHER_GITSTORE_BRANCH" ]] || { echo 'operator journal and CPA GitStore write domains must differ' >&2; exit 2; }
-          [[ "$CPA_OAUTH_ISOLATION" == 'separate-gitstores-and-logins' ]] || { echo 'separate CPA OAuth stores/logins must be explicitly acknowledged' >&2; exit 2; }
+          [[ "$CPA_OAUTH_ISOLATION" == 'shared-login-sequential-smoke' ]] || { echo 'this test branch requires the explicit shared-login sequential-smoke marker' >&2; exit 2; }
           [[ "$PROPOSER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ && "$DEFENDER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]] || { echo 'PROPOSER_SIGNER_ADDRESS and DEFENDER_SIGNER_ADDRESS must be EVM addresses' >&2; exit 2; }
           [[ "${PROPOSER_SIGNER_ADDRESS,,}" != "${DEFENDER_SIGNER_ADDRESS,,}" ]] || { echo 'authoritative parallel scheduling requires distinct proposer and defender signer addresses' >&2; exit 2; }
 
