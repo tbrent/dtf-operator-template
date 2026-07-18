@@ -58,13 +58,23 @@ if [[ -n "${CLIPROXY_SECOND_AUTH_TGZ_B64:-}" ]]; then
   (( ${#second_auth_files[@]} >= 1 )) || { echo 'error: secondary CPA OAuth archive contains no records' >&2; exit 2; }
   defender_auth="${second_auth_files[0]}"
 else
-  (( ${#auth_files[@]} >= 2 )) || { echo 'error: a second independent CPA OAuth archive is required' >&2; exit 2; }
-  defender_auth="${auth_files[1]}"
+  if (( ${#auth_files[@]} >= 2 )); then
+    defender_auth="${auth_files[1]}"
+  elif [[ "${ALLOW_SHARED_CPA_LOGIN_FOR_SEQUENTIAL_SMOKE:-0}" == '1' ]]; then
+    defender_auth="$proposer_auth"
+    echo 'warning=shared_cpa_login_allowed_only_for_sequential_smoke'
+  else
+    echo 'error: a second independent CPA OAuth archive is required' >&2
+    exit 2
+  fi
 fi
 proposer_identity="$(jq -r '.account_id // .email // empty' "$proposer_auth")"
 defender_identity="$(jq -r '.account_id // .email // empty' "$defender_auth")"
 [[ -n "$proposer_identity" && -n "$defender_identity" ]] || { echo 'error: CPA OAuth records lack account identity fields' >&2; exit 2; }
-[[ "$proposer_identity" != "$defender_identity" ]] || { echo 'error: Proposer and Defender CPA OAuth records resolve to the same account' >&2; exit 2; }
+if [[ "$proposer_identity" == "$defender_identity" && "${ALLOW_SHARED_CPA_LOGIN_FOR_SEQUENTIAL_SMOKE:-0}" != '1' ]]; then
+  echo 'error: Proposer and Defender CPA OAuth records resolve to the same account' >&2
+  exit 2
+fi
 cp "$proposer_auth" "$work/proposer-auth/$(basename "$proposer_auth")"
 cp "$defender_auth" "$work/defender-auth/$(basename "$defender_auth")"
 
