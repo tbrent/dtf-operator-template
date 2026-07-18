@@ -18,7 +18,14 @@ FUND_PROPOSER_WEI="${FUND_PROPOSER_WEI:-0}"
 
 umask 077
 work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/dtf-live-bootstrap.XXXXXX")"
-cleanup() { rm -rf "$work"; }
+cleanup() {
+  status=$?
+  trap - EXIT
+  docker run --rm --entrypoint sh -v "$work:/work" "$DTF_OPERATOR_IMAGE" \
+    -c 'chmod -R a+rwX /work' >/dev/null 2>&1 || true
+  rm -rf "$work" >/dev/null 2>&1 || true
+  exit "$status"
+}
 trap cleanup EXIT
 
 mkdir -m 700 "$work/runtime" "$work/cliproxy-auth" "$work/cliproxy-second-auth" "$work/proposer-auth" "$work/defender-auth" "$work/defender-data"

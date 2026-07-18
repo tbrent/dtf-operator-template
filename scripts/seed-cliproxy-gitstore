@@ -50,14 +50,22 @@ command -v curl >/dev/null 2>&1 || die "curl is required"
 
 umask 077
 state_dir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-gitstore.XXXXXX")"
+verify_state_dir=""
 container="cliproxy-gitstore-seed-$$"
+verify_container="cliproxy-gitstore-verify-$$"
 management_password="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 export MANAGEMENT_PASSWORD="$management_password"
 cleanup() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
-  docker run --rm --entrypoint sh -v "$state_dir:/state" "$cliproxy_image" \
-    -c 'chmod -R a+rwX /state' >/dev/null 2>&1 || true
-  rm -rf "$state_dir" >/dev/null 2>&1 || true
+  status=$?
+  trap - EXIT
+  docker rm -f "$container" "$verify_container" >/dev/null 2>&1 || true
+  for dir in "$state_dir" "$verify_state_dir"; do
+    [[ -n "$dir" ]] || continue
+    docker run --rm --entrypoint sh -v "$dir:/state" "$cliproxy_image" \
+      -c 'chmod -R a+rwX /state' >/dev/null 2>&1 || true
+    rm -rf "$dir" >/dev/null 2>&1 || true
+  done
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -93,5 +101,30 @@ while IFS= read -r -d '' file; do
 done < <(find "$auth_dir" -maxdepth 1 -type f -name '*.json' -print0)
 
 (( count > 0 )) || die "no OAuth JSON files found in $auth_dir"
+
+# Upload writes the file before GitTokenStore.Save runs, so CPA's file watcher
+# performs the Git commit asynchronously. Give it time to push, then prove the
+# OAuth record survives a clean clone rather than trusting the local API view.
+sleep 10
+docker rm -f "$container" >/dev/null
+container=""
+verify_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-gitstore-verify.XXXXXX")"
+docker run -d --name "$verify_container" -p 127.0.0.1:8317:8317 \
+  -e GITSTORE_GIT_URL="$git_url" -e GITSTORE_GIT_BRANCH="$git_branch" \
+  -e GITSTORE_GIT_USERNAME="$git_username" -e GITSTORE_GIT_TOKEN \
+  -e GITSTORE_LOCAL_PATH=/state -e MANAGEMENT_PASSWORD \
+  -v "$verify_state_dir:/state" "$cliproxy_image" /CLIProxyAPI/CLIProxyAPI >/dev/null
+
+restored_auth_files=""
+for _ in {1..60}; do
+  if restored_auth_files="$(curl -sf -H "Authorization: Bearer $management_password" http://127.0.0.1:8317/v0/management/auth-files)"; then
+    break
+  fi
+  sleep 1
+done
+[[ -n "$restored_auth_files" ]] || die "CLIProxyAPI restore verification did not become ready"
+[[ "$restored_auth_files" != *'"files":[]'* ]] || die "seeded GitStore did not restore OAuth records from the remote branch"
+
 echo "gitstore_seeded_auth_records=$count"
-echo "next_step=verify_the_private_repository_contains_auths_and_config_then_remove_CLIPROXY_AUTH_TGZ_B64_and_arm_git-authoritative"
+echo "gitstore_restore_verified=1"
+echo "next_step=remove_CLIPROXY_AUTH_TGZ_B64_and_arm_git-authoritative"
