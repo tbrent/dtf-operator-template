@@ -10,7 +10,7 @@ chainId: 8453
 proposer:
   # Scheduled workflow defaults. The workflow wakes up frequently, then the
   # proposer script targets auction starts at least this far apart.
-  rebalanceCadence: 1m
+  rebalanceCadence: 1min
   runHours: 0.1
   pollSeconds: 20
   cowbotSeconds: 30
