@@ -21,7 +21,7 @@ work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/dtf-live-bootstrap.XXXXXX")"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
-mkdir -m 700 "$work/runtime" "$work/cliproxy-auth" "$work/proposer-auth" "$work/defender-auth" "$work/defender-data"
+mkdir -m 700 "$work/runtime" "$work/cliproxy-auth" "$work/cliproxy-second-auth" "$work/proposer-auth" "$work/defender-auth" "$work/defender-data"
 printf '%s' "$DEFENDER_KEYSTORE_JSON_B64" | base64 --decode > "$work/runtime/$DEFENDER_FOUNDRY_ACCOUNT"
 printf '%s' "$DEFENDER_KEYSTORE_PASSWORD" > "$work/runtime/password"
 chmod 600 "$work/runtime/$DEFENDER_FOUNDRY_ACCOUNT" "$work/runtime/password"
@@ -48,10 +48,25 @@ fi
 
 printf '%s' "$CLIPROXY_AUTH_TGZ_B64" | base64 --decode | tar --no-same-owner -xzf - -C "$work/cliproxy-auth"
 mapfile -d '' auth_files < <(find "$work/cliproxy-auth" -type f -name '*.json' -print0 | sort -z)
-echo "oauth_record_count=${#auth_files[@]}"
-(( ${#auth_files[@]} >= 2 )) || { echo 'error: at least two independent OAuth records are required for isolated Proposer and Defender GitStores' >&2; exit 2; }
-cp "${auth_files[0]}" "$work/proposer-auth/$(basename "${auth_files[0]}")"
-cp "${auth_files[1]}" "$work/defender-auth/$(basename "${auth_files[1]}")"
+echo "primary_oauth_record_count=${#auth_files[@]}"
+(( ${#auth_files[@]} >= 1 )) || { echo 'error: primary CPA OAuth archive contains no records' >&2; exit 2; }
+proposer_auth="${auth_files[0]}"
+if [[ -n "${CLIPROXY_SECOND_AUTH_TGZ_B64:-}" ]]; then
+  printf '%s' "$CLIPROXY_SECOND_AUTH_TGZ_B64" | base64 --decode | tar --no-same-owner -xzf - -C "$work/cliproxy-second-auth"
+  mapfile -d '' second_auth_files < <(find "$work/cliproxy-second-auth" -type f -name '*.json' -print0 | sort -z)
+  echo "secondary_oauth_record_count=${#second_auth_files[@]}"
+  (( ${#second_auth_files[@]} >= 1 )) || { echo 'error: secondary CPA OAuth archive contains no records' >&2; exit 2; }
+  defender_auth="${second_auth_files[0]}"
+else
+  (( ${#auth_files[@]} >= 2 )) || { echo 'error: a second independent CPA OAuth archive is required' >&2; exit 2; }
+  defender_auth="${auth_files[1]}"
+fi
+proposer_identity="$(jq -r '.account_id // .email // empty' "$proposer_auth")"
+defender_identity="$(jq -r '.account_id // .email // empty' "$defender_auth")"
+[[ -n "$proposer_identity" && -n "$defender_identity" ]] || { echo 'error: CPA OAuth records lack account identity fields' >&2; exit 2; }
+[[ "$proposer_identity" != "$defender_identity" ]] || { echo 'error: Proposer and Defender CPA OAuth records resolve to the same account' >&2; exit 2; }
+cp "$proposer_auth" "$work/proposer-auth/$(basename "$proposer_auth")"
+cp "$defender_auth" "$work/defender-auth/$(basename "$defender_auth")"
 
 export GITSTORE_GIT_TOKEN="$CPA_PROPOSER_GITSTORE_TOKEN"
 scripts/seed-cliproxy-gitstore \
@@ -80,11 +95,18 @@ operator_state() {
     "$DTF_OPERATOR_IMAGE" \
     node dist/cli/run-defender-state.js "$@" --state-root /data
 }
-operator_state seed
-operator_state validate
-operator_state cutover
-rm -rf "$work/defender-data"
-mkdir -m 700 "$work/defender-data"
-operator_state restore
-operator_state validate
-operator_state status
+if operator_state restore; then
+  operator_state validate
+  operator_state status
+else
+  rm -rf "$work/defender-data"
+  mkdir -m 700 "$work/defender-data"
+  operator_state seed
+  operator_state validate
+  operator_state cutover
+  rm -rf "$work/defender-data"
+  mkdir -m 700 "$work/defender-data"
+  operator_state restore
+  operator_state validate
+  operator_state status
+fi
