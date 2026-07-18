@@ -208,6 +208,8 @@ jobs:
           docker stop --time 15 cliproxy >/dev/null 2>&1 || true
           docker rm -f cliproxy >/dev/null 2>&1 || true
           docker network rm dtf-inference >/dev/null 2>&1 || true
+          docker run --rm --entrypoint sh -v "$PWD/cliproxy-gitstore:/state" "$CLI_PROXY_IMAGE" \
+            -c 'chmod -R a+rwX /state' >/dev/null 2>&1 || true
           rm -rf cliproxy-gitstore
 
       - name: Summarize proposer artifacts

@@ -55,11 +55,11 @@ defender:
   waitActiveSeconds: 120
 
   # Maximum total optimistic-proposal lifetime: vetoDelay + vetoPeriod. This is
-  # deliberately not only vetoPeriod. The runtime resolves 14d to 1,209,600
-  # seconds and uses it to validate timing and bound normal proposal discovery.
+  # deliberately not only vetoPeriod. This disposable test tightens the bound to
+  # 10 minutes, safely above the live governor's 301-second optimistic lifetime.
   # Treat it as a permanent governance invariant: no proposal may ever be created
   # while the governor is configured with a longer total lifetime.
-  maxVetoDelayPlusPeriod: 10m
+  maxVetoDelayPlusPeriod: 10min
 
   # Required before authoritative mode is armed. Allow only the known deployed
   # governor implementations for the chains Defender protects; do not use a
