@@ -46,8 +46,50 @@ env:
   CLI_PROXY_IMAGE: ${{ vars.CLI_PROXY_IMAGE || 'eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9' }}
 
 jobs:
+  bootstrap:
+    if: ${{ github.repository == 'tbrent/dtf-operator-template' && github.event_name == 'workflow_dispatch' && github.ref_name == 'test/gitstore-live-d45e' && inputs.proposal_from_block == 'bootstrap' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout reviewed operator source
+        uses: actions/checkout@v4
+        with:
+          repository: tbrent/dtf-operator
+          ref: 1277e6651e8db4dd127eda22f07385554fb7faec
+          path: operator-src
+
+      - name: Build reviewed operator image
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C operator-src rev-parse HEAD)" == '1277e6651e8db4dd127eda22f07385554fb7faec' ]]
+          docker build --target runtime -t "$DTF_OPERATOR_IMAGE" operator-src
+
+      - name: Bootstrap isolated persistence and signer funding
+        shell: bash
+        env:
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+          DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
+          DEFENDER_KEYSTORE_PASSWORD: ${{ secrets.DEFENDER_KEYSTORE_PASSWORD }}
+          DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT }}
+          PROPOSER_SIGNER_ADDRESS: ${{ vars.PROPOSER_SIGNER_ADDRESS }}
+          FUND_PROPOSER_WEI: '200000000000000'
+          CLIPROXY_AUTH_TGZ_B64: ${{ secrets.CLIPROXY_AUTH_TGZ_B64 }}
+          CPA_PROPOSER_GITSTORE_URL: ${{ vars.CPA_PROPOSER_GITSTORE_URL }}
+          CPA_PROPOSER_GITSTORE_BRANCH: ${{ vars.CPA_PROPOSER_GITSTORE_BRANCH }}
+          CPA_PROPOSER_GITSTORE_TOKEN: ${{ secrets.CPA_PROPOSER_GITSTORE_TOKEN }}
+          CPA_DEFENDER_GITSTORE_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
+          CPA_DEFENDER_GITSTORE_BRANCH: ${{ vars.CPA_DEFENDER_GITSTORE_BRANCH }}
+          CPA_DEFENDER_GITSTORE_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
+          CPA_GITSTORE_GIT_USERNAME: ${{ vars.CPA_GITSTORE_GIT_USERNAME }}
+          OPERATOR_STATE_GIT_URL: ${{ vars.OPERATOR_STATE_GIT_URL }}
+          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
+          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.OPERATOR_STATE_GIT_TOKEN }}
+        run: scripts/live-test-bootstrap
+
   defender:
-    if: ${{ github.repository == 'tbrent/dtf-operator-template' && github.event_name == 'workflow_dispatch' && github.ref_name == 'test/gitstore-live-d45e' && vars.OPERATOR_AUTHORITY_MODE == 'git-authoritative' }}
+    if: ${{ github.repository == 'tbrent/dtf-operator-template' && github.event_name == 'workflow_dispatch' && github.ref_name == 'test/gitstore-live-d45e' && inputs.proposal_from_block != 'bootstrap' && vars.OPERATOR_AUTHORITY_MODE == 'git-authoritative' }}
     runs-on: ubuntu-latest
     # This lock serializes only Defender's signer. It does not queue behind a
     # long proposer. Safe concurrent operation requires the distinct CPA store
