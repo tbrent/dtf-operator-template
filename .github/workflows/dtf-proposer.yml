@@ -79,6 +79,7 @@ jobs:
           repository: tbrent/dtf-operator
           ref: 1277e6651e8db4dd127eda22f07385554fb7faec
           path: operator-src
+          token: ${{ secrets.OPERATOR_STATE_GIT_TOKEN }}
 
       - name: Build reviewed operator image
         shell: bash
