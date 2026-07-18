@@ -58,7 +58,7 @@ permissions:
 
 env:
   # This disposable live-test branch builds the exact reviewed source commit locally.
-  DTF_OPERATOR_IMAGE: dtf-operator-live-test:1277e66
+  DTF_OPERATOR_IMAGE: dtf-operator-live-test:7fff748
   CLI_PROXY_IMAGE: ${{ vars.CLI_PROXY_IMAGE || 'eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9' }}
 
 jobs:
@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: tbrent/dtf-operator
-          ref: 1277e6651e8db4dd127eda22f07385554fb7faec
+          ref: 7fff7484f3795112dd3741f86f46bdb916852830
           path: operator-src
           token: ${{ secrets.OPERATOR_STATE_GIT_TOKEN }}
 
@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$(git -C operator-src rev-parse HEAD)" == '1277e6651e8db4dd127eda22f07385554fb7faec' ]]
+          [[ "$(git -C operator-src rev-parse HEAD)" == '7fff7484f3795112dd3741f86f46bdb916852830' ]]
           docker build --target runtime -t "$DTF_OPERATOR_IMAGE" operator-src
 
       - name: Assert authoritative cutover inputs
@@ -102,7 +102,7 @@ jobs:
           DEFENDER_SIGNER_ADDRESS: ${{ vars.DEFENDER_SIGNER_ADDRESS }}
         run: |
           set -euo pipefail
-          [[ "$DTF_OPERATOR_IMAGE" == 'dtf-operator-live-test:1277e66' ]] || { echo 'unexpected live-test operator image' >&2; exit 2; }
+          [[ "$DTF_OPERATOR_IMAGE" == 'dtf-operator-live-test:7fff748' ]] || { echo 'unexpected live-test operator image' >&2; exit 2; }
           [[ "$CLI_PROXY_IMAGE" == *@sha256:* ]] || { echo 'CLI_PROXY_IMAGE must be digest-pinned' >&2; exit 2; }
           for required in CPA_GITSTORE_URL CPA_GITSTORE_BRANCH CPA_GITSTORE_TOKEN CPA_OTHER_GITSTORE_URL CPA_OTHER_GITSTORE_BRANCH INFERENCE_API_KEY; do
             [[ -n "${!required:-}" ]] || { echo "$required is required for authoritative mode" >&2; exit 2; }
