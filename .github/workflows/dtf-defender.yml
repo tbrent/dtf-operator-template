@@ -25,6 +25,11 @@ on:
         required: false
         default: ''
         type: string
+      proposal_id:
+        description: Optional exact proposal ID for durable veto recovery
+        required: false
+        default: ''
+        type: string
       proposal_log_chunk_blocks:
         description: Optional ProposalCreated log chunk size
         required: false
@@ -217,6 +222,7 @@ jobs:
           RUN_HOURS_INPUT: ${{ inputs.run_hours }}
           POLL_SECONDS_INPUT: ${{ inputs.poll_seconds }}
           PROPOSAL_FROM_BLOCK_INPUT: ${{ inputs.proposal_from_block }}
+          PROPOSAL_ID: ${{ inputs.proposal_id }}
           DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
           DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
           OPERATOR_STATE_GIT_URL: ${{ vars.OPERATOR_STATE_GIT_URL }}
@@ -231,7 +237,7 @@ jobs:
             -e RPC_URL -e MAINNET_RPC_URL -e BSC_RPC_URL -e BASE_RPC_URL \
             -e DEFENDER_KEYSTORE_JSON_B64 -e DEFENDER_KEYSTORE_PASSWORD -e DEFENDER_FOUNDRY_ACCOUNT -e DEFENDER_SIGNER_ADDRESS \
             -e RESEND_API_KEY -e DEFENDER_EMAIL_TO -e DEFENDER_EMAIL_FROM -e INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS \
-            -e ONCE_INPUT -e RUN_HOURS_INPUT -e POLL_SECONDS_INPUT -e PROPOSAL_FROM_BLOCK_INPUT \
+            -e ONCE_INPUT -e RUN_HOURS_INPUT -e POLL_SECONDS_INPUT -e PROPOSAL_FROM_BLOCK_INPUT -e PROPOSAL_ID \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS -e DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS \
             -e GITHUB_SERVER_URL -e GITHUB_REPOSITORY -e GITHUB_EVENT_NAME -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT \
             -e OPERATOR_STATE_GIT_URL -e OPERATOR_STATE_GIT_BRANCH -e OPERATOR_STATE_GIT_TOKEN \
