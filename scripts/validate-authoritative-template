@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${TEMPLATE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+proposer="$root/.github/workflows/dtf-proposer.yml"
+defender="$root/.github/workflows/dtf-defender.yml"
+config="$root/.github/dtf-operator.yml"
+readme="$root/README.md"
+seed_cpa="$root/scripts/seed-cliproxy-gitstore"
+init_journal="$root/scripts/initialize-defender-journal"
+setup_proposer="$root/scripts/setup-github-proposer"
+setup_defender="$root/scripts/setup-github-defender"
+legacy_cache="$root/scripts/codex-auth-cache"
+
+expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4'
+expected_revision='2d8246d4d31939a668d3586e6241d0b49ababc37'
+
+fail() {
+  echo "authoritative template validation failed: $*" >&2
+  exit 2
+}
+
+require_contains() {
+  local file="$1"
+  local value="$2"
+  local message="$3"
+  grep -Fq -- "$value" "$file" || fail "$message"
+}
+
+reject_pattern() {
+  local pattern="$1"
+  local message="$2"
+  shift 2
+  if grep -En -- "$pattern" "$@"; then
+    fail "$message"
+  fi
+}
+
+for file in "$proposer" "$defender" "$config" "$readme" "$seed_cpa" "$init_journal" "$setup_proposer" "$setup_defender"; do
+  [[ -s "$file" ]] || fail "missing required file: $file"
+done
+[[ ! -e "$legacy_cache" ]] || fail 'legacy OAuth cache helper must be removed'
+
+for workflow in "$proposer" "$defender"; do
+  require_contains "$workflow" "DTF_OPERATOR_IMAGE: $expected_image" "missing exact operator digest in $workflow"
+  require_contains "$workflow" "DTF_OPERATOR_SOURCE_REVISION: $expected_revision" "missing exact source revision in $workflow"
+  require_contains "$workflow" "docker pull --platform linux/amd64 \"\$DTF_OPERATOR_IMAGE\"" "operator pull must select linux/amd64 in $workflow"
+  require_contains "$workflow" 'org.opencontainers.image.revision' "operator OCI revision is not asserted in $workflow"
+  require_contains "$workflow" 'operator image must be linux/amd64' "operator platform is not asserted in $workflow"
+  require_contains "$workflow" "vars.DTF_SCHEDULES_ENABLED == 'true'" "scheduled runs are not repository-variable gated in $workflow"
+  require_contains "$workflow" "github.event_name == 'workflow_dispatch' || vars.DTF_SCHEDULES_ENABLED == 'true'" "manual dispatch must bypass only the schedule gate in $workflow"
+  require_contains "$workflow" 'CPA_PROPOSER_OAUTH_IDENTITY' "missing Proposer OAuth identity marker in $workflow"
+  require_contains "$workflow" 'CPA_DEFENDER_OAUTH_IDENTITY' "missing Defender OAuth identity marker in $workflow"
+  require_contains "$workflow" 'separate-gitstores-and-logins' "missing explicit OAuth isolation mode in $workflow"
+  require_contains "$workflow" 'Proposer and Defender CPA OAuth identities must differ' "OAuth identities are not compared in $workflow"
+  require_contains "$workflow" 'CPA_PROPOSER_OAUTH_FINGERPRINT' "missing Proposer OAuth fingerprint in $workflow"
+  require_contains "$workflow" 'CPA_DEFENDER_OAUTH_FINGERPRINT' "missing Defender OAuth fingerprint in $workflow"
+  require_contains "$workflow" 'Proposer and Defender CPA OAuth account fingerprints must differ' "OAuth account fingerprints are not compared in $workflow"
+  require_contains "$workflow" 'Proposer CPA, Defender CPA, and Defender journal write domains must be pairwise distinct' "three Git domains are not compared in $workflow"
+  require_contains "$workflow" 'Proposer and Defender signers must differ' "signer isolation is not asserted in $workflow"
+  require_contains "$workflow" 'Git URLs must not contain credentials' "credential-bearing Git URLs are not rejected in $workflow"
+  require_contains "$workflow" 'persist-credentials: false' "configuration checkout must not persist the GitHub token in $workflow"
+done
+for file in "$proposer" "$defender" "$init_journal" "$readme"; do
+  while IFS= read -r line; do
+    [[ "$line" == *"$expected_image"* ]] || fail "unexpected operator image reference in $file"
+  done < <(grep -F 'ghcr.io/reserve-protocol/dtf-operator' "$file" || true)
+done
+
+require_contains "$proposer" "group: dtf-proposer-\${{ github.repository_id }}" 'missing dedicated Proposer concurrency group'
+require_contains "$defender" "group: dtf-defender-\${{ github.repository_id }}" 'missing dedicated Defender concurrency group'
+if grep -Fq "group: dtf-proposer-\${{ github.repository_id }}" "$defender" || grep -Fq "group: dtf-defender-\${{ github.repository_id }}" "$proposer"; then
+  fail 'Proposer and Defender concurrency groups must remain distinct'
+fi
+
+require_contains "$proposer" 'CPA_PROPOSER_GITSTORE_TOKEN' 'Proposer must use its dedicated CPA GitStore token'
+require_contains "$defender" 'CPA_DEFENDER_GITSTORE_TOKEN' 'Defender must use its dedicated CPA GitStore token'
+require_contains "$proposer" 'PROPOSER_INFERENCE_API_KEY' 'Proposer must use its dedicated inference gateway key'
+require_contains "$defender" 'DEFENDER_INFERENCE_API_KEY' 'Defender must use its dedicated inference gateway key'
+require_contains "$proposer" '-e PROPOSER_SIGNER_ADDRESS' 'Proposer must pass its declared signer address to the runtime'
+require_contains "$defender" '-e DEFENDER_SIGNER_ADDRESS' 'Defender must pass its declared signer address to the runtime'
+
+for required in OPERATOR_STATE_GIT_URL OPERATOR_STATE_GIT_BRANCH OPERATOR_STATE_GIT_TOKEN 'OPERATOR_STATE_MODE=git-authoritative'; do
+  require_contains "$defender" "$required" "missing Defender Git-authoritative contract: $required"
+done
+reject_pattern 'OPERATOR_STATE_GIT_TOKEN|OPERATOR_STATE_MODE' 'Proposer must not receive Defender journal authority credentials or mode' "$proposer"
+
+require_contains "$defender" 'Run serial multi-Folio Defender coordinator' 'Defender must retain one serial multi-Folio coordinator'
+if [[ "$(grep -Fc 'node dist/cli/run-github-defender.js' "$defender")" != 1 ]]; then
+  fail 'Defender workflow must invoke the coordinator exactly once'
+fi
+reject_pattern '(^|[[:space:]])matrix:' 'Defender must not use a per-Folio matrix' "$defender"
+
+reject_pattern 'actions/cache|codex-auth-cache|cliproxy-auth-cache|CLIPROXY_AUTH_TGZ_B64|dtf-codex-auth' 'legacy Actions cache OAuth or state persistence remains' "$proposer" "$defender"
+reject_pattern 'shared-login|sequential-smoke|smoke-only|live-test|test/gitstore|tbrent|controlled-veto-test|operator-src|docker build' 'disposable branch or per-run build behavior remains' "$proposer" "$defender" "$config"
+reject_pattern 'operator_image:|inputs\.operator_image|vars\.DTF_OPERATOR|dtf-operator:(stable|main|latest)' 'mutable operator image configuration remains' "$proposer" "$defender"
+reject_pattern 'ABANDON_SUBMITTED_VETO|abandon_submitted_veto|defenderMaxVetoLifetime|DEFENDER_MAX_VETO_LIFETIME_SECONDS' 'obsolete Defender recovery or lifetime configuration remains' "$proposer" "$defender" "$config" "$readme"
+reject_pattern 'supportedGovernorImplementations|SUPPORTED_GOVERNOR|read-defender-supported-governors' 'governor implementation allowlist configuration must be absent' "$proposer" "$defender" "$config" "$readme"
+reject_pattern 'repository:[[:space:]]+[^#]*dtf-operator|ref:[[:space:]]+[0-9a-f]{7,40}' 'operator source checkout remains' "$proposer" "$defender"
+
+require_contains "$config" 'maxVetoDelayPlusPeriod: 1209600s' 'Defender maximum must be configured to exactly 1209600 seconds (14 days)'
+require_contains "$config" 'alertOnlyWithoutSigner: false' 'production Defender must require its dedicated signer'
+
+require_contains "$seed_cpa" 'target GitStore already contains OAuth records' 'CPA initialization must refuse a populated GitStore'
+require_contains "$seed_cpa" 'source_oauth_files_preserved=1' 'CPA initialization must preserve source OAuth material'
+require_contains "$seed_cpa" 'CPA OAuth identity labels must differ' 'CPA initialization must compare role identity labels'
+require_contains "$seed_cpa" 'exactly one Codex OAuth JSON record is required per role' 'CPA initialization must require one identity record per role'
+require_contains "$seed_cpa" 'OAUTH_FINGERPRINT' 'CPA initialization must upload a stable identity fingerprint'
+require_contains "$setup_proposer" 'Proposer and Defender signer addresses must differ' 'Proposer setup must reject the Defender signer'
+require_contains "$setup_defender" 'Proposer and Defender signer addresses must differ' 'Defender setup must reject the Proposer signer'
+require_contains "$init_journal" 'refuses an existing' 'Defender journal initialization must refuse existing authority state'
+require_contains "$init_journal" 'does not import prior runtime files' 'Defender journal initialization must be fresh-only'
+require_contains "$init_journal" 'intentionally left intact' 'partial private authority state must never be deleted silently'
+require_contains "$init_journal" "$expected_image" 'Defender journal initializer must pin the exact operator digest'
+require_contains "$init_journal" "$expected_revision" 'Defender journal initializer must assert the exact source revision'
+reject_pattern 'push[[:space:]].*--force|push[[:space:]].*--delete|branch[[:space:]].*-D' 'persistence helpers must not force-push or delete private branches' "$seed_cpa" "$init_journal"
+
+reject_pattern 'gh secret set[^|]*--body' 'credentials must not be passed in gh command arguments' "$seed_cpa" "$init_journal" "$setup_proposer" "$setup_defender"
+require_contains "$seed_cpa" '--git-url must not contain credentials' 'CPA initializer must reject credential-bearing Git URLs'
+require_contains "$init_journal" '--git-url must not contain credentials' 'journal initializer must reject credential-bearing Git URLs'
+reject_pattern 'SIGNED_TRANSACTION|RAW_TRANSACTION|SIGNED_TX_BYTES|RAW_TX_BYTES|signedTransaction[[:space:]:=]|signed_transaction[[:space:]:=]|rawTransaction[[:space:]:=]|raw_transaction[[:space:]:=]' 'plaintext signed transaction fields or environment variables are forbidden' "$proposer" "$defender" "$config" "$readme"
+
+require_contains "$readme" "$expected_image" 'README must record the exact runtime image'
+require_contains "$readme" "$expected_revision" 'README must record the exact source revision'
+require_contains "$readme" 'DTF_SCHEDULES_ENABLED' 'README must document the schedule gate'
+require_contains "$readme" 'CPA_PROPOSER_OAUTH_FINGERPRINT' 'README must document OAuth fingerprint Secrets'
+require_contains "$readme" 'CPA_DEFENDER_OAUTH_FINGERPRINT' 'README must document OAuth fingerprint Secrets'
+require_contains "$readme" 'Equality is accepted.' 'README must document equality at the 1209600-second maximum'
+require_contains "$readme" 'Do not delete retained OAuth archives' 'README must preserve OAuth archives through acceptance'
+require_contains "$readme" 'forbids force-pushes and deletion' 'README must require authority branch protection'
+
+echo 'authoritative template validation passed'

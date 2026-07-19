@@ -6,15 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       once:
-        description: Run one scan and exit; set false to keep polling for run_hours
+        description: Run one scan and exit
         required: false
         default: true
         type: boolean
-      operator_image:
-        description: Optional runtime image override; default is DTF_OPERATOR_IMAGE or the upstream stable image
-        required: false
-        default: ''
-        type: string
       run_hours:
         description: Optional RUN_HOURS override when once=false
         required: false
@@ -26,12 +21,17 @@ on:
         default: ''
         type: string
       proposal_from_block:
-        description: Optional ProposalCreated scan start block for targeted veto runs
+        description: Optional ProposalCreated deployment floor for targeted recovery
+        required: false
+        default: ''
+        type: string
+      proposal_id:
+        description: Optional exact proposal ID for durable veto recovery
         required: false
         default: ''
         type: string
       proposal_log_chunk_blocks:
-        description: Optional ProposalCreated log chunk size for RPC providers with small eth_getLogs limits
+        description: Optional ProposalCreated log chunk size
         required: false
         default: ''
         type: string
@@ -40,353 +40,217 @@ on:
         required: false
         default: ''
         type: string
-      abandon_submitted_veto_tx_hash:
-        description: Dangerous recovery assertion; exact submitted veto tx hash independently verified safe to abandon
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
-  actions: write
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ${{ vars.DTF_OPERATOR_IMAGE || 'ghcr.io/reserve-protocol/dtf-operator:stable' }}
-  CLI_PROXY_IMAGE: ${{ vars.CLI_PROXY_IMAGE || 'eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9' }}
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4
+  DTF_OPERATOR_SOURCE_REVISION: 2d8246d4d31939a668d3586e6241d0b49ababc37
+  CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
   defender:
-    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && vars.DTF_ACTIONS_ENABLED == 'true' }}
+    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && (github.event_name == 'workflow_dispatch' || vars.DTF_SCHEDULES_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     concurrency:
-      group: dtf-codex-auth-${{ github.repository_id }}
+      group: dtf-defender-${{ github.repository_id }}
       cancel-in-progress: false
 
     steps:
-      - name: Checkout
+      - name: Checkout operator configuration
         uses: actions/checkout@v7
-
-      - name: Restore defender state
-        uses: actions/cache/restore@v6
         with:
-          path: .defender-state
-          key: defender-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            defender-state-${{ github.repository_id }}-${{ github.ref_name }}-
-            defender-state-${{ github.repository_id }}-
+          persist-credentials: false
 
-      - name: Restore operator alert state
-        uses: actions/cache/restore@v6
-        with:
-          path: .operator-alert-state
-          key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-
-            operator-alert-state-${{ github.repository_id }}-
-
-      - name: Restore encrypted CLIProxy auth cache
-        uses: actions/cache/restore@v6
-        with:
-          path: .cliproxy-auth-cache/cliproxy-auth.tgz.enc
-          key: cliproxy-auth-cache-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            cliproxy-auth-cache-${{ github.repository_id }}-${{ github.ref_name }}-
-            cliproxy-auth-cache-${{ github.repository_id }}-
-
-      - name: Restore CLIProxy auth state
-        id: restore_cliproxy_auth
+      - name: Assert production isolation
         shell: bash
         env:
-          CLIPROXY_AUTH_TGZ_B64: ${{ secrets.CLIPROXY_AUTH_TGZ_B64 }}
+          CPA_PROPOSER_GITSTORE_URL: ${{ vars.CPA_PROPOSER_GITSTORE_URL }}
+          CPA_PROPOSER_GITSTORE_BRANCH: ${{ vars.CPA_PROPOSER_GITSTORE_BRANCH }}
+          CPA_DEFENDER_GITSTORE_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
+          CPA_DEFENDER_GITSTORE_BRANCH: ${{ vars.CPA_DEFENDER_GITSTORE_BRANCH }}
+          CPA_DEFENDER_GITSTORE_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
+          OPERATOR_STATE_GIT_URL: ${{ vars.OPERATOR_STATE_GIT_URL }}
+          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
+          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.OPERATOR_STATE_GIT_TOKEN }}
+          CPA_PROPOSER_OAUTH_IDENTITY: ${{ vars.CPA_PROPOSER_OAUTH_IDENTITY }}
+          CPA_DEFENDER_OAUTH_IDENTITY: ${{ vars.CPA_DEFENDER_OAUTH_IDENTITY }}
+          CPA_PROPOSER_OAUTH_FINGERPRINT: ${{ secrets.CPA_PROPOSER_OAUTH_FINGERPRINT }}
+          CPA_DEFENDER_OAUTH_FINGERPRINT: ${{ secrets.CPA_DEFENDER_OAUTH_FINGERPRINT }}
+          CPA_OAUTH_ISOLATION: ${{ vars.CPA_OAUTH_ISOLATION }}
+          PROPOSER_SIGNER_ADDRESS: ${{ vars.PROPOSER_SIGNER_ADDRESS }}
+          DEFENDER_SIGNER_ADDRESS: ${{ vars.DEFENDER_SIGNER_ADDRESS }}
+          DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
+          DEFENDER_KEYSTORE_PASSWORD: ${{ secrets.DEFENDER_KEYSTORE_PASSWORD }}
+          DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT }}
+          DEFENDER_INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
-          umask 077
-          if [[ -z "${CLIPROXY_AUTH_TGZ_B64:-}" ]]; then
-            echo "CLIPROXY_AUTH_TGZ_B64 secret is required" >&2
-            exit 2
-          fi
-          rm -rf cliproxy-auth cliproxy-auth.tgz
-          mkdir -p .cliproxy-auth-cache
-          if [[ -f .cliproxy-auth-cache/cliproxy-auth.tgz.enc ]]; then
-            if scripts/codex-auth-cache decrypt .cliproxy-auth-cache/cliproxy-auth.tgz.enc cliproxy-auth.tgz && \
-              mkdir -p cliproxy-auth && \
-              tar --no-same-owner -xzf cliproxy-auth.tgz -C cliproxy-auth; then
-              rm -f cliproxy-auth.tgz
-              echo "auth_ready=true" >> "$GITHUB_OUTPUT"
-              echo "cliproxy_auth_cache=restored"
-              exit 0
-            fi
-            echo "cliproxy_auth_cache=restore_failed_bootstrap"
-            rm -rf cliproxy-auth cliproxy-auth.tgz
-          fi
-          mkdir -p cliproxy-auth
-          printf '%s' "$CLIPROXY_AUTH_TGZ_B64" | base64 --decode | tar --no-same-owner -xzf - -C cliproxy-auth
-          echo "auth_ready=true" >> "$GITHUB_OUTPUT"
-          echo "cliproxy_auth_cache=bootstrap"
+          for required in \
+            CPA_PROPOSER_GITSTORE_URL CPA_PROPOSER_GITSTORE_BRANCH \
+            CPA_DEFENDER_GITSTORE_URL CPA_DEFENDER_GITSTORE_BRANCH CPA_DEFENDER_GITSTORE_TOKEN \
+            OPERATOR_STATE_GIT_URL OPERATOR_STATE_GIT_BRANCH OPERATOR_STATE_GIT_TOKEN \
+            CPA_PROPOSER_OAUTH_IDENTITY CPA_DEFENDER_OAUTH_IDENTITY \
+            CPA_PROPOSER_OAUTH_FINGERPRINT CPA_DEFENDER_OAUTH_FINGERPRINT CPA_OAUTH_ISOLATION \
+            PROPOSER_SIGNER_ADDRESS DEFENDER_SIGNER_ADDRESS \
+            DEFENDER_KEYSTORE_JSON_B64 DEFENDER_KEYSTORE_PASSWORD DEFENDER_FOUNDRY_ACCOUNT DEFENDER_INFERENCE_API_KEY; do
+            [[ -n "${!required:-}" ]] || { echo "$required is required" >&2; exit 2; }
+          done
+          [[ "$CPA_OAUTH_ISOLATION" == 'separate-gitstores-and-logins' ]] || { echo 'CPA_OAUTH_ISOLATION must confirm separate GitStores and OAuth logins' >&2; exit 2; }
+          [[ "$CPA_PROPOSER_OAUTH_IDENTITY" =~ ^[A-Za-z0-9._@+-]+$ && "$CPA_DEFENDER_OAUTH_IDENTITY" =~ ^[A-Za-z0-9._@+-]+$ ]] || { echo 'CPA OAuth identity labels must use safe non-secret characters' >&2; exit 2; }
+          [[ "${CPA_PROPOSER_OAUTH_IDENTITY,,}" != "${CPA_DEFENDER_OAUTH_IDENTITY,,}" ]] || { echo 'Proposer and Defender CPA OAuth identities must differ' >&2; exit 2; }
+          [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ && "$CPA_DEFENDER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]] || { echo 'CPA OAuth identity fingerprints are invalid' >&2; exit 2; }
+          [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" != "$CPA_DEFENDER_OAUTH_FINGERPRINT" ]] || { echo 'Proposer and Defender CPA OAuth account fingerprints must differ' >&2; exit 2; }
+          proposer_domain="$CPA_PROPOSER_GITSTORE_URL#$CPA_PROPOSER_GITSTORE_BRANCH"
+          defender_domain="$CPA_DEFENDER_GITSTORE_URL#$CPA_DEFENDER_GITSTORE_BRANCH"
+          journal_domain="$OPERATOR_STATE_GIT_URL#$OPERATOR_STATE_GIT_BRANCH"
+          [[ "$proposer_domain" != "$defender_domain" && "$proposer_domain" != "$journal_domain" && "$defender_domain" != "$journal_domain" ]] || { echo 'Proposer CPA, Defender CPA, and Defender journal write domains must be pairwise distinct' >&2; exit 2; }
+          for url in "$CPA_PROPOSER_GITSTORE_URL" "$CPA_DEFENDER_GITSTORE_URL" "$OPERATOR_STATE_GIT_URL"; do
+            case "$url" in
+              http://*@*|https://*@*) echo 'Git URLs must not contain credentials' >&2; exit 2 ;;
+            esac
+          done
+          [[ "$PROPOSER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ && "$DEFENDER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]] || { echo 'Proposer and Defender signer variables must be EVM addresses' >&2; exit 2; }
+          [[ "${PROPOSER_SIGNER_ADDRESS,,}" != "${DEFENDER_SIGNER_ADDRESS,,}" ]] || { echo 'Proposer and Defender signers must differ' >&2; exit 2; }
 
-      - name: Resolve operator image
+      - name: Pull and verify published operator
+        id: pull_image
         shell: bash
         run: |
           set -euo pipefail
-          operator_image="$OPERATOR_IMAGE_INPUT"
-          if [[ -n "$operator_image" ]]; then
-            if [[ ! "$operator_image" =~ ^[A-Za-z0-9._/@:-]+$ ]]; then
-              echo "operator_image contains unsupported characters" >&2
-              exit 2
-            fi
-            printf 'DTF_OPERATOR_IMAGE=%s\n' "$operator_image" >> "$GITHUB_ENV"
-          fi
-          echo "operator_image=${operator_image:-$DTF_OPERATOR_IMAGE}"
-        env:
-          OPERATOR_IMAGE_INPUT: ${{ inputs.operator_image }}
-
-      - name: Pull operator image
-        shell: bash
-        run: |
-          set -euo pipefail
-          if docker pull "$DTF_OPERATOR_IMAGE"; then
-            exit 0
-          fi
-          echo "docker pull failed for $DTF_OPERATOR_IMAGE" >&2
-          echo "The default runtime image is public. If you overrode DTF_OPERATOR_IMAGE, set it to a readable linux/amd64 image." >&2
-          exit 2
-
-      - name: Verify operator image platform
-        shell: bash
-        run: |
-          set -euo pipefail
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4'
+          expected_revision='2d8246d4d31939a668d3586e6241d0b49ababc37'
+          [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
+          [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
+          docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
           platform="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{.Os}}/{{.Architecture}}')"
+          revision="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          [[ "$platform" == 'linux/amd64' ]] || { echo "operator image must be linux/amd64; got $platform" >&2; exit 2; }
+          [[ "$revision" == "$DTF_OPERATOR_SOURCE_REVISION" ]] || { echo 'operator OCI revision does not match the reviewed source revision' >&2; exit 2; }
           echo "operator_image=$DTF_OPERATOR_IMAGE"
-          echo "operator_image_platform=$platform"
-          if [[ "$platform" != "linux/amd64" ]]; then
-            echo "DTF_OPERATOR_IMAGE must resolve to linux/amd64 on GitHub ubuntu runners; got $platform" >&2
-            exit 2
-          fi
+          echo "operator_source_revision=$DTF_OPERATOR_SOURCE_REVISION"
+          echo "operator_platform=$platform"
 
-      - name: Start CLIProxyAPI inference sidecar
+      - name: Start Defender GitStore inference sidecar
         shell: bash
+        env:
+          GITSTORE_GIT_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
+          GITSTORE_GIT_BRANCH: ${{ vars.CPA_DEFENDER_GITSTORE_BRANCH }}
+          GITSTORE_GIT_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
+          GITSTORE_GIT_USERNAME: ${{ vars.CPA_GITSTORE_GIT_USERNAME }}
+          MANAGEMENT_PASSWORD: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
+          mkdir -m 700 -p cliproxy-gitstore
           docker network create dtf-inference >/dev/null 2>&1 || true
-          cat > cliproxy.config.yaml <<EOF
-          host: "0.0.0.0"
-          port: 8317
-          remote-management:
-            allow-remote: true
-            secret-key: ""
-            disable-control-panel: true
-          auth-dir: "/root/.cli-proxy-api"
-          api-keys:
-            - "$INFERENCE_API_KEY"
-          debug: false
-          logging-to-file: false
-          usage-statistics-enabled: false
-          commercial-mode: true
-          request-retry: 0
-          disable-cooling: true
-          save-cooldown-status: false
-          ws-auth: true
-          EOF
-          docker rm -f cliproxy >/dev/null 2>&1 || true
           docker run -d \
             --name cliproxy \
             --network dtf-inference \
             -p 127.0.0.1:8317:8317 \
+            -e GITSTORE_GIT_URL \
+            -e GITSTORE_GIT_BRANCH \
+            -e GITSTORE_GIT_TOKEN \
+            -e GITSTORE_GIT_USERNAME \
+            -e GITSTORE_LOCAL_PATH=/state \
             -e MANAGEMENT_PASSWORD \
-            -v "$PWD/cliproxy.config.yaml:/CLIProxyAPI/config.yaml:ro" \
-            -v "$PWD/cliproxy-auth:/root/.cli-proxy-api" \
+            -v "$PWD/cliproxy-gitstore:/state" \
             "$CLI_PROXY_IMAGE" \
-            /CLIProxyAPI/CLIProxyAPI -config /CLIProxyAPI/config.yaml
+            /CLIProxyAPI/CLIProxyAPI
           for _ in {1..60}; do
-            if curl -sf -H "Authorization: Bearer $INFERENCE_API_KEY" http://127.0.0.1:8317/v1/models >/dev/null; then
-              echo "cliproxy_ready"
-              curl -s -H "Authorization: Bearer $INFERENCE_API_KEY" http://127.0.0.1:8317/v1/models
+            if curl -sf -H "Authorization: Bearer $MANAGEMENT_PASSWORD" http://127.0.0.1:8317/v1/models >/dev/null; then
               exit 0
             fi
             sleep 1
           done
-          echo "cliproxy did not become ready" >&2
+          echo 'Defender CLIProxyAPI did not become ready; inspect the private GitStore outside this credential-bearing workflow' >&2
           exit 2
-        env:
-          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
-          MANAGEMENT_PASSWORD: ${{ secrets.INFERENCE_API_KEY }}
 
-      - name: Check CLIProxyAPI OAuth health
+      - name: Verify Defender OAuth authority
         shell: bash
+        env:
+          MANAGEMENT_PASSWORD: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
-          mkdir -p .operator-alert-state
-          docker run --rm \
-            --network dtf-inference \
-            -e INFERENCE_BASE_URL \
-            -e INFERENCE_API_KEY \
-            -e INFERENCE_ALERT_STATE_DIR=/alert-state \
-            -e INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS \
-            -e RESEND_API_KEY \
-            -e DEFENDER_EMAIL_TO \
-            -e DEFENDER_EMAIL_FROM \
-            -e GITHUB_SERVER_URL \
-            -e GITHUB_REPOSITORY \
-            -e GITHUB_RUN_ID \
-            -v "$PWD/.operator-alert-state:/alert-state" \
-            "$DTF_OPERATOR_IMAGE" \
-            node dist/cli/check-cliproxy-auth.js
+          auth_files="$(curl -fsS -H "Authorization: Bearer $MANAGEMENT_PASSWORD" http://127.0.0.1:8317/v0/management/auth-files)"
+          [[ "$auth_files" != *'"files":[]'* ]] || { echo 'Defender CPA GitStore contains no OAuth records' >&2; exit 2; }
+
+      - name: Run serial multi-Folio Defender coordinator
+        shell: bash
         env:
-          INFERENCE_BASE_URL: http://cliproxy:8317/v1
-          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
-          INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
+          INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
+          RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
+          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
+          DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
+          DEFENDER_KEYSTORE_PASSWORD: ${{ secrets.DEFENDER_KEYSTORE_PASSWORD }}
+          DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT }}
+          DEFENDER_SIGNER_ADDRESS: ${{ vars.DEFENDER_SIGNER_ADDRESS }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO || vars.DEFENDER_EMAIL_TO }}
           DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
-
-      - name: Run defender
-        shell: bash
+          INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
+          ONCE_INPUT: ${{ inputs.once }}
+          RUN_HOURS_INPUT: ${{ inputs.run_hours }}
+          POLL_SECONDS_INPUT: ${{ inputs.poll_seconds }}
+          PROPOSAL_FROM_BLOCK_INPUT: ${{ inputs.proposal_from_block }}
+          PROPOSAL_ID: ${{ inputs.proposal_id }}
+          DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
+          DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
+          OPERATOR_STATE_GIT_URL: ${{ vars.OPERATOR_STATE_GIT_URL }}
+          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
+          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.OPERATOR_STATE_GIT_TOKEN }}
         run: |
           set -euo pipefail
-          mkdir -p .defender-state .operator-alert-state
+          mkdir -p defender-data
           docker run --rm \
+            --platform linux/amd64 \
             --network dtf-inference \
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
-            -e RUNTIME_DIR=/runtime \
             -e OUT_ROOT=/data \
-            -e DEFAULT_PROJECT_ENV_FILE=/opt/dtf-operator/default-project.env \
-            -e INFERENCE_BASE_URL \
+            -e INFERENCE_BASE_URL=http://cliproxy:8317/v1 \
             -e INFERENCE_API_KEY \
-            -e INFERENCE_ALERT_STATE_DIR=/alert-state \
+            -e RPC_URL \
+            -e MAINNET_RPC_URL \
+            -e BSC_RPC_URL \
+            -e BASE_RPC_URL \
+            -e DEFENDER_KEYSTORE_JSON_B64 \
+            -e DEFENDER_KEYSTORE_PASSWORD \
+            -e DEFENDER_FOUNDRY_ACCOUNT \
+            -e DEFENDER_SIGNER_ADDRESS \
+            -e RESEND_API_KEY \
+            -e DEFENDER_EMAIL_TO \
+            -e DEFENDER_EMAIL_FROM \
             -e INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS \
             -e ONCE_INPUT \
             -e RUN_HOURS_INPUT \
             -e POLL_SECONDS_INPUT \
             -e PROPOSAL_FROM_BLOCK_INPUT \
+            -e PROPOSAL_ID \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS \
-            -e DEFENDER_ABANDON_SUBMITTED_VETO_TX_HASH \
-            -e PROPOSER_KEYSTORE_JSON_B64 \
-            -e PROPOSER_KEYSTORE_PASSWORD \
-            -e DEFENDER_KEYSTORE_JSON_B64 \
-            -e DEFENDER_KEYSTORE_PASSWORD \
-            -e DEFENDER_FOUNDRY_ACCOUNT \
-            -e RESEND_API_KEY \
-            -e DEFENDER_EMAIL_TO \
-            -e DEFENDER_EMAIL_FROM \
-            -e FOUNDRY_ACCOUNT \
-            -e RPC_URL \
-            -e MAINNET_RPC_URL \
-            -e BSC_RPC_URL \
-            -e BASE_RPC_URL \
             -e GITHUB_SERVER_URL \
             -e GITHUB_REPOSITORY \
-            -e GITHUB_RUN_ID \
             -e GITHUB_EVENT_NAME \
+            -e GITHUB_RUN_ID \
+            -e GITHUB_RUN_ATTEMPT \
+            -e OPERATOR_STATE_GIT_URL \
+            -e OPERATOR_STATE_GIT_BRANCH \
+            -e OPERATOR_STATE_GIT_TOKEN \
+            -e OPERATOR_STATE_MODE=git-authoritative \
             -v "$PWD/.github/dtf-operator.yml:/config/dtf-operator.yml:ro" \
-            -v "$PWD/.defender-state:/data" \
-            -v "$PWD/.operator-alert-state:/alert-state" \
+            -v "$PWD/defender-data:/data" \
             "$DTF_OPERATOR_IMAGE" \
             node dist/cli/run-github-defender.js
-        env:
-          INFERENCE_BASE_URL: http://cliproxy:8317/v1
-          INFERENCE_API_KEY: ${{ secrets.INFERENCE_API_KEY }}
-          INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
-          PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
-          PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
-          DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
-          DEFENDER_KEYSTORE_PASSWORD: ${{ secrets.DEFENDER_KEYSTORE_PASSWORD }}
-          DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO || vars.DEFENDER_EMAIL_TO }}
-          DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
-          FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT || vars.DEFENDER_FOUNDRY_ACCOUNT || secrets.FOUNDRY_ACCOUNT }}
-          RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
-          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
-          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
-          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL || vars.BASE_RPC_URL }}
-          ONCE_INPUT: ${{ inputs.once }}
-          RUN_HOURS_INPUT: ${{ inputs.run_hours }}
-          POLL_SECONDS_INPUT: ${{ inputs.poll_seconds }}
-          PROPOSAL_FROM_BLOCK_INPUT: ${{ inputs.proposal_from_block }}
-          DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
-          DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
-          DEFENDER_ABANDON_SUBMITTED_VETO_TX_HASH: ${{ inputs.abandon_submitted_veto_tx_hash }}
 
-      - name: Stop inference sidecar
+      - name: Stop sidecar and remove local state
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          if docker container inspect cliproxy >/dev/null 2>&1; then
-            docker stop --time 15 cliproxy >/dev/null 2>&1 || docker rm -f cliproxy >/dev/null 2>&1 || true
-            docker rm cliproxy >/dev/null 2>&1 || true
-          fi
+          docker stop --time 15 cliproxy >/dev/null 2>&1 || true
+          docker rm -f cliproxy >/dev/null 2>&1 || true
           docker network rm dtf-inference >/dev/null 2>&1 || true
-          rm -f cliproxy.config.yaml
-
-      - name: Normalize CLIProxy auth state ownership
-        if: always() && steps.restore_cliproxy_auth.outputs.auth_ready == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -d cliproxy-auth ]]; then
-            if command -v sudo >/dev/null 2>&1; then
-              sudo chown -R "$(id -u):$(id -g)" cliproxy-auth
-            else
-              chown -R "$(id -u):$(id -g)" cliproxy-auth
-            fi
-          fi
-
-      - name: Encrypt CLIProxy auth state
-        id: encrypt_cliproxy_auth_cache
-        if: always() && steps.restore_cliproxy_auth.outputs.auth_ready == 'true'
-        shell: bash
-        env:
-          CLIPROXY_AUTH_TGZ_B64: ${{ secrets.CLIPROXY_AUTH_TGZ_B64 }}
-        run: |
-          set -euo pipefail
-          umask 077
-          plaintext_archive=cliproxy-auth.tgz
-          cleanup() {
-            rm -rf cliproxy-auth "$plaintext_archive"
-          }
-          trap cleanup EXIT
-          if [[ ! -d cliproxy-auth ]]; then
-            echo "CLIProxy auth state is unavailable" >&2
-            exit 2
-          fi
-          if [[ -z "${CLIPROXY_AUTH_TGZ_B64:-}" ]]; then
-            echo "CLIPROXY_AUTH_TGZ_B64 secret is required to preserve CLIProxy auth" >&2
-            exit 2
-          fi
-          mkdir -p .cliproxy-auth-cache
-          rm -f "$plaintext_archive" .cliproxy-auth-cache/cliproxy-auth.tgz.enc
-          tar -czf "$plaintext_archive" -C cliproxy-auth .
-          scripts/codex-auth-cache encrypt "$plaintext_archive" .cliproxy-auth-cache/cliproxy-auth.tgz.enc
-          echo "cache_ready=true" >> "$GITHUB_OUTPUT"
-          echo "cliproxy_auth_cache=encrypted"
-
-      - name: Remove plaintext CLIProxy auth state
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf cliproxy-auth cliproxy-auth.tgz
-
-      - name: Save encrypted CLIProxy auth cache
-        if: always() && steps.encrypt_cliproxy_auth_cache.outputs.cache_ready == 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: .cliproxy-auth-cache/cliproxy-auth.tgz.enc
-          key: cliproxy-auth-cache-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Save defender state
-        if: always()
-        uses: actions/cache/save@v6
-        with:
-          path: .defender-state
-          key: defender-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Save operator alert state
-        if: always()
-        uses: actions/cache/save@v6
-        with:
-          path: .operator-alert-state
-          key: operator-alert-state-${{ github.repository_id }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          sudo rm -rf cliproxy-gitstore defender-data 2>/dev/null || rm -rf cliproxy-gitstore defender-data

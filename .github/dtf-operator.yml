@@ -46,6 +46,11 @@ proposer:
     chainLabel:
 
 defender:
+  # Production safety maximum: exactly 14 days (1,209,600 seconds). The runtime
+  # rejects governors and proposals whose veto delay plus voting period exceeds
+  # this configured maximum; equality is accepted.
+  maxVetoDelayPlusPeriod: 1209600s
+
   # The workflow wakes up every 15 minutes, then this frequency gate skips extra
   # runs so forks can tune cadence from this one config file. This value may be
   # raised above 30; GitHub schedules are best-effort, so actual gaps can be longer.
@@ -54,10 +59,11 @@ defender:
   pollSeconds: 20
   waitActiveSeconds: 120
 
-  # Multi-Folio production example only. When this list is present and non-empty,
+  # When this list is present and non-empty,
   # it replaces the top-level target for Defender only; Proposer still targets
   # the top-level Folio. Keep one entry per Defender target and set fromBlock to
-  # a block before that Folio's first relevant governance proposal.
+  # a block before that Folio's first relevant governance proposal. One workflow
+  # invocation coordinates all entries serially; do not create a job matrix.
   # folios:
   #   - folioAddress: "<FIRST_FOLIO_ADDRESS>"
   #     chainId: 56
@@ -70,8 +76,8 @@ defender:
   #     proposalScan:
   #       fromBlock: 23456789
 
-  # Legacy single-Folio fallback. This is used only when defender.folios is
-  # omitted or empty. The runtime automatically shrinks rejected or timed-out
+  # Single-Folio fallback. This is used only when defender.folios is omitted or
+  # empty. The runtime automatically shrinks rejected or timed-out
   # eth_getLogs ranges and checkpoints each successful chunk. Leave chunking
   # blank unless an RPC provider needs an explicit operational override.
   proposalScan:
@@ -87,9 +93,9 @@ defender:
   # proposal should be approved or vetoed. Deterministic processing supports
   # the review but does not make mandate-compliance decisions.
   requireAiApproval: true
-  # If signer secrets are missing, the workflow sends email alerts instead of
-  # casting vetoes. If email is also missing, it fails hard.
-  alertOnlyWithoutSigner: true
+  # The production workflow requires a dedicated Defender signer and fails its
+  # isolation preflight when signer secrets are missing.
+  alertOnlyWithoutSigner: false
   inference:
     model: gpt-5.5
     reasoningEffort: medium
