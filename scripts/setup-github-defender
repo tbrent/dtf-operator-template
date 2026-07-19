@@ -130,6 +130,10 @@ done
 require_command cast
 require_command gh
 
+if [[ -n "$generate_keystore_dir" && "$force_keystore_password" == 1 && -e "${generate_keystore_dir%/}/$foundry_account" ]]; then
+  die "refusing to replace the password for an existing generated keystore; create a new keystore path instead"
+fi
+
 umask 077
 if [[ "$init_keystore_password" == 1 || "$force_keystore_password" == 1 ]]; then
   if [[ -f "$keystore_password_file" && "$force_keystore_password" != 1 ]]; then
