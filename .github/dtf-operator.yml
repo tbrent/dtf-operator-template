@@ -4,8 +4,8 @@
 version: 1
 
 # Required. Set both values for the DTF/Folio the Proposer operates.
-folioAddress: "0xa0Fe4e0aEca5479705ce996615B2EACB6b6a10Fb"
-chainId: 56
+folioAddress: "0xd45e4170834a803D084b2bB145c9ad08f3BdD651"
+chainId: 8453
 
 proposer:
   # Scheduled workflow defaults. The workflow wakes up frequently, then the
@@ -35,7 +35,7 @@ proposer:
   # DTF/Folio's first relevant governance proposal, then tune chunking only if
   # your RPC provider cannot handle large eth_getLogs ranges.
   proposalScan:
-    fromBlock: 110200000
+    fromBlock: 48750000
     logChunkBlocks:
     logChunkDelayMs:
 
@@ -64,39 +64,12 @@ defender:
   # the top-level Folio. Keep one entry per Defender target and set fromBlock to
   # a block before that Folio's first relevant governance proposal. One workflow
   # invocation coordinates all entries serially; do not create a job matrix.
-  folios:
-    - folioAddress: "0xa0Fe4e0aEca5479705ce996615B2EACB6b6a10Fb" # PHOTON
-      chainId: 56
-      governorAddress: "0xf6F73C085b22D791705b8173712F37A2FeEE58e1"
-      proposalScan:
-        fromBlock: 110200000
-    - folioAddress: "0xD7cE7a841310982AcD976D1a6fe7BB6063c5689D" # BUILDOUT
-      chainId: 56
-      governorAddress: "0x11DdDE7845764C5317042c51e7e5EC665db33055"
-      proposalScan:
-        fromBlock: 110200000
-    - folioAddress: "0x290bCc0Fd5096cC3261AE2021841c7BC67Cb0f51" # POWER
-      chainId: 56
-      governorAddress: "0x056CCC0F4CEDc4246F79cBf5Fe40F4D170Cb6769"
-      proposalScan:
-        fromBlock: 110200000
-    - folioAddress: "0xf571Fe3F0d74521Bc7310B111Faea931C748f27B" # NEOCLOUD
-      chainId: 56
-      governorAddress: "0x72b4Be10fBb28Af7b227C1db48EdC3f2B111Ec6E"
-      proposalScan:
-        fromBlock: 110200000
-    - folioAddress: "0x75617e7653f86f074Cc30b9Fd4eBf52bA9b62247" # ROBOTS
-      chainId: 56
-      governorAddress: "0x736242C3fB5cFeEE70267D5C3B123211b760C966"
-      proposalScan:
-        fromBlock: 110200000
-
   # Single-Folio fallback. This is used only when defender.folios is omitted or
   # empty. The runtime automatically shrinks rejected or timed-out
   # eth_getLogs ranges and checkpoints each successful chunk. Leave chunking
   # blank unless an RPC provider needs an explicit operational override.
   proposalScan:
-    fromBlock:
+    fromBlock: 48750000
     logChunkBlocks:
     logChunkDelayMs:
 
