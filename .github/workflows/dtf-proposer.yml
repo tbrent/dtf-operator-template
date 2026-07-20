@@ -152,6 +152,23 @@ jobs:
           MANAGEMENT_PASSWORD: ${{ secrets.PROPOSER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
+          askpass="$(mktemp)"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' "$GITSTORE_GIT_USERNAME" ;;
+            *Password*) printf '%s\n' "$GITSTORE_GIT_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          if ! GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$GITSTORE_GIT_URL" "refs/heads/$GITSTORE_GIT_BRANCH" >/dev/null 2>&1; then
+            echo 'Proposer GitStore token cannot read the configured repository branch' >&2
+            exit 2
+          fi
+          rm -f "$askpass"
+          trap - EXIT
           mkdir -m 700 -p cliproxy-gitstore
           docker network create dtf-inference >/dev/null 2>&1 || true
           docker run -d \
@@ -168,12 +185,13 @@ jobs:
             "$CLI_PROXY_IMAGE" \
             /CLIProxyAPI/CLIProxyAPI
           for _ in {1..60}; do
-            if curl -sf -H "Authorization: Bearer $MANAGEMENT_PASSWORD" http://127.0.0.1:8317/v1/models >/dev/null; then
+            if curl -sf -H "Authorization: Bearer $MANAGEMENT_PASSWORD" http://127.0.0.1:8317/v0/management/auth-files >/dev/null; then
               exit 0
             fi
             sleep 1
           done
-          echo 'Proposer CLIProxyAPI did not become ready; inspect the private GitStore outside this credential-bearing workflow' >&2
+          state="$(docker inspect cliproxy --format '{{.State.Status}} (exit {{.State.ExitCode}})' 2>/dev/null || printf 'missing')"
+          echo "Proposer CLIProxyAPI did not become ready; container state: $state" >&2
           exit 2
 
       - name: Verify Proposer OAuth authority

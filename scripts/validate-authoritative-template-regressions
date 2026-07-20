@@ -69,6 +69,14 @@ sed -i '/Proposer and Defender CPA OAuth account fingerprints must differ/d' "$f
 expect_rejected oauth_fingerprint "$fixture"
 
 fixture="$(new_fixture)"
+sed -i 's#/v0/management/auth-files#/v1/models#g' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected gitstore_readiness_endpoint "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/git ls-remote --exit-code/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected gitstore_branch_access "$fixture"
+
+fixture="$(new_fixture)"
 sed -i 's/OPERATOR_STATE_MODE=git-authoritative/OPERATOR_STATE_MODE=local/' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected git_authority "$fixture"
 
