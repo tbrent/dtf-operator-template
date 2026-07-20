@@ -46,8 +46,8 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4
-  DTF_OPERATOR_SOURCE_REVISION: 2d8246d4d31939a668d3586e6241d0b49ababc37
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:b9598fed1631fdf51202519c6c05a1f05f570abe770db3ab547f58f253f9f36d
+  DTF_OPERATOR_SOURCE_REVISION: 1993eff03c3c03ebcdb72dca3fb8ec54ff267d23
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
@@ -120,8 +120,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4'
-          expected_revision='2d8246d4d31939a668d3586e6241d0b49ababc37'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:b9598fed1631fdf51202519c6c05a1f05f570abe770db3ab547f58f253f9f36d'
+          expected_revision='1993eff03c3c03ebcdb72dca3fb8ec54ff267d23'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
@@ -143,6 +143,17 @@ jobs:
           MANAGEMENT_PASSWORD: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
+          repo_slug="${GITSTORE_GIT_URL#https://github.com/}"
+          repo_slug="${repo_slug%.git}"
+          api_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GITSTORE_GIT_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$repo_slug/branches/$GITSTORE_GIT_BRANCH" || true)"
+          if [[ "$api_status" != 200 ]]; then
+            echo "Defender GitStore token branch check returned GitHub API HTTP $api_status" >&2
+            exit 2
+          fi
           askpass="$(mktemp)"
           trap 'rm -f "$askpass"' EXIT
           cat > "$askpass" <<'EOF'

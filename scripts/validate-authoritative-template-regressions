@@ -33,11 +33,11 @@ expect_rejected() {
 TEMPLATE_ROOT="$root" "$validator" >/dev/null
 
 fixture="$(new_fixture)"
-sed -i 's/6cdc5c19/7cdc5c19/' "$fixture/.github/workflows/dtf-proposer.yml"
+sed -i 's/b9598fed/c9598fed/' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected operator_digest "$fixture"
 
 fixture="$(new_fixture)"
-sed -i 's/2d8246d4/3d8246d4/' "$fixture/.github/workflows/dtf-defender.yml"
+sed -i 's/1993eff0/2993eff0/' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected source_revision "$fixture"
 
 fixture="$(new_fixture)"
@@ -71,6 +71,10 @@ expect_rejected oauth_fingerprint "$fixture"
 fixture="$(new_fixture)"
 sed -i 's#/v0/management/auth-files#/v1/models#g' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected gitstore_readiness_endpoint "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/api.github.com\/repos\/\$repo_slug\/branches\/\$GITSTORE_GIT_BRANCH/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected gitstore_api_diagnostic "$fixture"
 
 fixture="$(new_fixture)"
 sed -i '/git ls-remote --exit-code/d' "$fixture/.github/workflows/dtf-defender.yml"
