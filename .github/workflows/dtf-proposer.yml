@@ -2,7 +2,7 @@ name: DTF Proposer
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
       mode:
