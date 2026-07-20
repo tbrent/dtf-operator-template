@@ -10,14 +10,14 @@ Defender state are persisted in dedicated private Git repositories.
 Every operator runtime execution is fixed to this reviewed production image:
 
 ```text
-ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4
+ghcr.io/reserve-protocol/dtf-operator@sha256:b9598fed1631fdf51202519c6c05a1f05f570abe770db3ab547f58f253f9f36d
 ```
 
 The image must resolve to `linux/amd64`. Its
 `org.opencontainers.image.revision` OCI label must equal:
 
 ```text
-2d8246d4d31939a668d3586e6241d0b49ababc37
+1993eff03c3c03ebcdb72dca3fb8ec54ff267d23
 ```
 
 Both workflows pull that digest with an explicit platform and reject any
