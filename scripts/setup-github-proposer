@@ -5,22 +5,24 @@ usage() {
   cat <<'EOF'
 Usage: scripts/setup-github-proposer [options]
 
-Uploads CLIProxy auth, a generated local gateway key, and proposer signer secrets
-to a private operator fork.
+Uploads a dedicated Proposer gateway key, signer secrets, account name, and
+signer-address variable to a private operator fork. CPA OAuth is initialized
+separately with scripts/seed-cliproxy-gitstore using the Proposer login.
 
 Required:
   --keystore <path> or --generate-keystore-dir <dir>
   --keystore-password-file <path>
 
 Options:
-  --cliproxy-auth-dir <path>       Defaults to ~/.cli-proxy-api
   --init-keystore-password         Create password file if missing
   --force-keystore-password        Replace generated password file before creating a new keystore
   --import-private-key-env <name>  Import 0x private key from env when generating
   --foundry-account <name>         Defaults to dtf-proposer
-  --repo <owner/repo>              Target GitHub repository for gh secret set
+  --repo <owner/repo>              Target GitHub repository
   -h, --help                       Show this help
 
+Set PROPOSER_INFERENCE_API_KEY in the environment to preserve an existing
+gateway key. When unset, the helper generates a new key without printing it.
 EOF
 }
 
@@ -50,9 +52,9 @@ set_secret() {
   local name="$1"
   local value="$2"
   if [[ -n "$repo" ]]; then
-    gh secret set "$name" --repo "$repo" --body "$value"
+    printf '%s' "$value" | gh secret set "$name" --repo "$repo"
   else
-    gh secret set "$name" --body "$value"
+    printf '%s' "$value" | gh secret set "$name"
   fi
 }
 
@@ -66,7 +68,25 @@ set_base64_file_secret() {
   fi
 }
 
-cliproxy_auth_dir="${HOME:-.}/.cli-proxy-api"
+set_variable() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    gh variable set "$name" --repo "$repo" --body "$value"
+  else
+    gh variable set "$name" --body "$value"
+  fi
+}
+
+get_variable() {
+  local name="$1"
+  if [[ -n "$repo" ]]; then
+    gh variable get "$name" --repo "$repo" 2>/dev/null || true
+  else
+    gh variable get "$name" 2>/dev/null || true
+  fi
+}
+
 keystore=""
 keystore_password_file=""
 init_keystore_password=0
@@ -78,7 +98,6 @@ repo=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --cliproxy-auth-dir) cliproxy_auth_dir="${2:-}"; shift 2 ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
     --init-keystore-password) init_keystore_password=1; shift ;;
@@ -101,19 +120,12 @@ done
 
 require_command cast
 require_command gh
-require_command tar
 
-[[ -d "$cliproxy_auth_dir" ]] || die "CLIProxy auth directory not found: $cliproxy_auth_dir"
+if [[ -n "$generate_keystore_dir" && "$force_keystore_password" == 1 && -e "${generate_keystore_dir%/}/$foundry_account" ]]; then
+  die "refusing to replace the password for an existing generated keystore; create a new keystore path instead"
+fi
 
 umask 077
-cliproxy_auth_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-auth.XXXXXX")"
-cliproxy_auth_archive="$cliproxy_auth_tmpdir/cliproxy-auth.tgz"
-cleanup() {
-  rm -rf "$cliproxy_auth_tmpdir"
-}
-trap cleanup EXIT
-tar -czf "$cliproxy_auth_archive" -C "$cliproxy_auth_dir" .
-
 if [[ "$init_keystore_password" == 1 || "$force_keystore_password" == 1 ]]; then
   if [[ -f "$keystore_password_file" && "$force_keystore_password" != 1 ]]; then
     chmod 600 "$keystore_password_file"
@@ -143,26 +155,34 @@ if [[ -n "$generate_keystore_dir" ]]; then
     private_key="$(printenv "$import_private_key_env" || true)"
     [[ "$private_key" =~ ^0x[0-9a-fA-F]{64}$ ]] || die "$import_private_key_env must contain a 0x-prefixed private key"
     CAST_UNSAFE_PASSWORD="$password" cast wallet import "$foundry_account" --keystore-dir "$generate_keystore_dir" --private-key "$private_key"
+    unset private_key
     echo "keystore_created=1"
   else
     CAST_PASSWORD="$password" cast wallet new "$generate_keystore_dir" "$foundry_account"
     echo "keystore_created=1"
   fi
+  unset password
 fi
 
 [[ -f "$keystore" ]] || die "keystore not found: ${keystore:-<unset>}"
 
 address="$(cast wallet address --keystore "$keystore" --password-file "$keystore_password_file" | tr -d '\r\n')"
 [[ "$address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "failed to derive signer address from keystore"
+other_signer="$(get_variable DEFENDER_SIGNER_ADDRESS)"
+if [[ -n "$other_signer" && "${address,,}" == "${other_signer,,}" ]]; then
+  die "Proposer and Defender signer addresses must differ"
+fi
+inference_api_key="${PROPOSER_INFERENCE_API_KEY:-$(random_password)}"
 
-echo "Setting proposer GitHub Secrets${repo:+ for $repo}"
-set_base64_file_secret CLIPROXY_AUTH_TGZ_B64 "$cliproxy_auth_archive"
-set_secret INFERENCE_API_KEY "${INFERENCE_API_KEY:-$(random_password)}"
-set_secret PROPOSER_KEYSTORE_JSON_B64 "$(base64_file "$keystore")"
+echo "Setting dedicated Proposer GitHub configuration${repo:+ for $repo}"
+set_secret PROPOSER_INFERENCE_API_KEY "$inference_api_key"
+set_base64_file_secret PROPOSER_KEYSTORE_JSON_B64 "$keystore"
 set_secret PROPOSER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
-set_secret FOUNDRY_ACCOUNT "$foundry_account"
+set_secret PROPOSER_FOUNDRY_ACCOUNT "$foundry_account"
+set_variable PROPOSER_SIGNER_ADDRESS "$address"
+unset inference_api_key
 
-echo "configured=cliproxy,live-proposer-signer"
+echo "configured=proposer-gateway,proposer-signer"
 echo "foundry_account=$foundry_account"
 echo "signer_address=$address"
-echo "next_step=edit .github/dtf-operator.yml, fund signer_address, grant optimistic proposer authority and AUCTION_LAUNCHER_ROLE if this signer should open auctions, set proposer.optimisticProposerAddress and proposer.auctionLauncherAddress, then run dry-run and observe-only before live broadcast"
+echo "next_step=seed the dedicated Proposer CPA GitStore with a Proposer-only OAuth login, then configure the Folio and signer authorities"

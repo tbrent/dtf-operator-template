@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+validator="$root/scripts/validate-authoritative-template"
+
+new_fixture() {
+  local fixture
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/authoritative-template-regression.XXXXXX")"
+  mkdir -p "$fixture/.github/workflows" "$fixture/scripts"
+  cp "$root/.github/workflows/dtf-proposer.yml" "$fixture/.github/workflows/"
+  cp "$root/.github/workflows/dtf-defender.yml" "$fixture/.github/workflows/"
+  cp "$root/.github/dtf-operator.yml" "$fixture/.github/"
+  cp "$root/README.md" "$fixture/"
+  cp "$root/scripts/seed-cliproxy-gitstore" "$fixture/scripts/"
+  cp "$root/scripts/initialize-defender-journal" "$fixture/scripts/"
+  cp "$root/scripts/setup-github-proposer" "$fixture/scripts/"
+  cp "$root/scripts/setup-github-defender" "$fixture/scripts/"
+  printf '%s\n' "$fixture"
+}
+
+expect_rejected() {
+  local name="$1"
+  local fixture="$2"
+  if TEMPLATE_ROOT="$fixture" "$validator" >/dev/null 2>&1; then
+    echo "regression was not rejected: $name" >&2
+    exit 2
+  fi
+  rm -rf "$fixture"
+  echo "regression_rejected=$name"
+}
+
+TEMPLATE_ROOT="$root" "$validator" >/dev/null
+
+fixture="$(new_fixture)"
+sed -i 's/6cdc5c19/7cdc5c19/' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected operator_digest "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/2d8246d4/3d8246d4/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected source_revision "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/group: dtf-defender-/group: dtf-proposer-/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected concurrency_isolation "$fixture"
+
+fixture="$(new_fixture)"
+sed -i "s/vars.DTF_SCHEDULES_ENABLED == 'true'/true/" "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected schedule_gate "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/maxVetoDelayPlusPeriod: 1209600s/maxVetoDelayPlusPeriod: 1209601s/' "$fixture/.github/dtf-operator.yml"
+expect_rejected veto_maximum "$fixture"
+
+fixture="$(new_fixture)"
+printf '\n# actions/cache\n' >> "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected actions_cache "$fixture"
+
+fixture="$(new_fixture)"
+printf '\n# supportedGovernorImplementations:\n' >> "$fixture/.github/dtf-operator.yml"
+expect_rejected governor_allowlist "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/Proposer and Defender CPA OAuth identities must differ/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected oauth_isolation "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/Proposer and Defender CPA OAuth account fingerprints must differ/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected oauth_fingerprint "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/OPERATOR_STATE_MODE=git-authoritative/OPERATOR_STATE_MODE=local/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected git_authority "$fixture"
+
+fixture="$(new_fixture)"
+printf '\n# SIGNED_TRANSACTION: forbidden\n' >> "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected plaintext_transaction "$fixture"
+
+password_fixture="$(mktemp -d "${TMPDIR:-/tmp}/keystore-password-regression.XXXXXX")"
+mkdir -p "$password_fixture/bin" "$password_fixture/proposer-keystores" "$password_fixture/defender-keystores"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$password_fixture/bin/cast"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$password_fixture/bin/gh"
+chmod +x "$password_fixture/bin/cast" "$password_fixture/bin/gh"
+printf 'existing-keystore\n' > "$password_fixture/proposer-keystores/dtf-proposer"
+printf 'existing-keystore\n' > "$password_fixture/defender-keystores/dtf-defender"
+printf 'original-password\n' > "$password_fixture/proposer-password"
+printf 'original-password\n' > "$password_fixture/defender-password"
+if PATH="$password_fixture/bin:$PATH" "$root/scripts/setup-github-proposer" \
+  --generate-keystore-dir "$password_fixture/proposer-keystores" \
+  --keystore-password-file "$password_fixture/proposer-password" \
+  --force-keystore-password >/dev/null 2>&1; then
+  echo 'existing Proposer keystore did not reject password replacement' >&2
+  exit 2
+fi
+if RESEND_API_KEY=dummy PATH="$password_fixture/bin:$PATH" "$root/scripts/setup-github-defender" \
+  --email operator@example.com \
+  --generate-keystore-dir "$password_fixture/defender-keystores" \
+  --keystore-password-file "$password_fixture/defender-password" \
+  --force-keystore-password >/dev/null 2>&1; then
+  echo 'existing Defender keystore did not reject password replacement' >&2
+  exit 2
+fi
+[[ "$(<"$password_fixture/proposer-password")" == 'original-password' ]] || { echo 'Proposer password file was overwritten' >&2; exit 2; }
+[[ "$(<"$password_fixture/defender-password")" == 'original-password' ]] || { echo 'Defender password file was overwritten' >&2; exit 2; }
+rm -rf "$password_fixture"
+echo 'regression_rejected=existing_keystore_password_replacement'
+
+echo 'authoritative template regressions passed'

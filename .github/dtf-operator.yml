@@ -18,7 +18,7 @@ proposer:
   # Address used only for dry-run optimistic proposal simulation. This must be
   # an address with available optimistic proposal throttle charges on the
   # trading governor. Set this to the signer address printed by scripts/setup-github-proposer.
-  optimisticProposerAddress:
+  optimisticProposerAddress: "0xcaCdB557966F13B175ca9962904fB79F82b67232"
 
   # Optional. Set only when this workflow should open auctions and run CowBot.
   auctionLauncherAddress:
@@ -35,7 +35,7 @@ proposer:
   # DTF/Folio's first relevant governance proposal, then tune chunking only if
   # your RPC provider cannot handle large eth_getLogs ranges.
   proposalScan:
-    fromBlock:
+    fromBlock: 110200000
     logChunkBlocks:
     logChunkDelayMs:
 
@@ -46,6 +46,11 @@ proposer:
     chainLabel:
 
 defender:
+  # Production safety maximum: exactly 14 days (1,209,600 seconds). The runtime
+  # rejects governors and proposals whose veto delay plus voting period exceeds
+  # this configured maximum; equality is accepted.
+  maxVetoDelayPlusPeriod: 1209600s
+
   # The workflow wakes up every 15 minutes, then this frequency gate skips extra
   # runs so forks can tune cadence from this one config file. This value may be
   # raised above 30; GitHub schedules are best-effort, so actual gaps can be longer.
@@ -56,9 +61,9 @@ defender:
 
   # When this list is present and non-empty,
   # it replaces the top-level target for Defender only; Proposer still targets
-  # the top-level Folio. Keep one entry per Defender target. These fixed bootstrap
-  # floors precede the maximum optimistic-proposal lifecycle and must not move
-  # forward after deployment; the persisted shared cursor handles later scans.
+  # the top-level Folio. Keep one entry per Defender target and set fromBlock to
+  # a block before that Folio's first relevant governance proposal. One workflow
+  # invocation coordinates all entries serially; do not create a job matrix.
   folios:
     - folioAddress: "0xa0Fe4e0aEca5479705ce996615B2EACB6b6a10Fb" # PHOTON
       chainId: 56
@@ -86,13 +91,14 @@ defender:
       proposalScan:
         fromBlock: 110200000
 
-  # Legacy single-Folio fallback. This is used only when defender.folios is
-  # omitted or empty. Tune chunking only if your RPC provider cannot handle
-  # large eth_getLogs ranges.
+  # Single-Folio fallback. This is used only when defender.folios is omitted or
+  # empty. The runtime automatically shrinks rejected or timed-out
+  # eth_getLogs ranges and checkpoints each successful chunk. Leave chunking
+  # blank unless an RPC provider needs an explicit operational override.
   proposalScan:
     fromBlock:
-    logChunkBlocks: 5000
-    logChunkDelayMs: 200
+    logChunkBlocks:
+    logChunkDelayMs:
 
   notifications:
     # May also be supplied through DEFENDER_EMAIL_TO GitHub Secret.
@@ -102,9 +108,9 @@ defender:
   # proposal should be approved or vetoed. Deterministic processing supports
   # the review but does not make mandate-compliance decisions.
   requireAiApproval: true
-  # If signer secrets are missing, the workflow sends email alerts instead of
-  # casting vetoes. If email is also missing, it fails hard.
-  alertOnlyWithoutSigner: true
+  # The production workflow requires a dedicated Defender signer and fails its
+  # isolation preflight when signer secrets are missing.
+  alertOnlyWithoutSigner: false
   inference:
     model: gpt-5.5
     reasoningEffort: medium

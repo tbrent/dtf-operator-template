@@ -5,22 +5,27 @@ usage() {
   cat <<'EOF'
 Usage: RESEND_API_KEY=<key> scripts/setup-github-defender --email <address> [options]
 
-Uploads CLIProxy auth, a generated local gateway key, email alert secrets, and
-optional defender veto signer secrets to a private operator fork.
+Uploads a dedicated Defender gateway key, email settings, signer secrets,
+account name, and signer-address variable to a private operator fork. CPA OAuth
+is initialized separately with scripts/seed-cliproxy-gitstore using a different
+login from Proposer.
+
+Required:
+  --email <address>
+  --keystore <path> or --generate-keystore-dir <dir>
+  --keystore-password-file <path>
 
 Options:
-  --email <address>                Required alert destination
   --from-email <address>           Optional sender; defaults in runtime when unset
-  --cliproxy-auth-dir <path>       Defaults to ~/.cli-proxy-api
-  --keystore <path>                Existing Foundry keystore
-  --keystore-password-file <path>  Required with signer setup
-  --init-keystore-password         Create password file if missing when generating
-  --generate-keystore-dir <dir>    Generate a new defender keystore
+  --init-keystore-password         Create password file if missing
+  --force-keystore-password        Replace generated password file before creating a new keystore
   --import-private-key-env <name>  Import 0x private key from env when generating
   --foundry-account <name>         Defaults to dtf-defender
-  --repo <owner/repo>              Target GitHub repository for gh secret set
+  --repo <owner/repo>              Target GitHub repository
   -h, --help                       Show this help
 
+Set DEFENDER_INFERENCE_API_KEY in the environment to preserve an existing
+gateway key. When unset, the helper generates a new key without printing it.
 EOF
 }
 
@@ -50,9 +55,9 @@ set_secret() {
   local name="$1"
   local value="$2"
   if [[ -n "$repo" ]]; then
-    gh secret set "$name" --repo "$repo" --body "$value"
+    printf '%s' "$value" | gh secret set "$name" --repo "$repo"
   else
-    gh secret set "$name" --body "$value"
+    printf '%s' "$value" | gh secret set "$name"
   fi
 }
 
@@ -66,12 +71,31 @@ set_base64_file_secret() {
   fi
 }
 
+set_variable() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    gh variable set "$name" --repo "$repo" --body "$value"
+  else
+    gh variable set "$name" --body "$value"
+  fi
+}
+
+get_variable() {
+  local name="$1"
+  if [[ -n "$repo" ]]; then
+    gh variable get "$name" --repo "$repo" 2>/dev/null || true
+  else
+    gh variable get "$name" 2>/dev/null || true
+  fi
+}
+
 email=""
 from_email="${DEFENDER_EMAIL_FROM:-}"
-cliproxy_auth_dir="${HOME:-.}/.cli-proxy-api"
 keystore=""
 keystore_password_file=""
 init_keystore_password=0
+force_keystore_password=0
 generate_keystore_dir=""
 import_private_key_env=""
 foundry_account="dtf-defender"
@@ -81,10 +105,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --email) email="${2:-}"; shift 2 ;;
     --from-email) from_email="${2:-}"; shift 2 ;;
-    --cliproxy-auth-dir) cliproxy_auth_dir="${2:-}"; shift 2 ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
     --init-keystore-password) init_keystore_password=1; shift ;;
+    --force-keystore-password) force_keystore_password=1; shift ;;
     --generate-keystore-dir) generate_keystore_dir="${2:-}"; shift 2 ;;
     --import-private-key-env) import_private_key_env="${2:-}"; shift 2 ;;
     --foundry-account) foundry_account="${2:-}"; shift 2 ;;
@@ -96,44 +120,37 @@ done
 
 [[ -n "$email" ]] || die "--email is required"
 [[ -n "${RESEND_API_KEY:-}" ]] || die "RESEND_API_KEY must be set in env"
+[[ -n "$keystore_password_file" ]] || die "--keystore-password-file is required"
+[[ -n "$keystore" || -n "$generate_keystore_dir" ]] || die "--keystore or --generate-keystore-dir is required"
 [[ -z "$keystore" || -z "$generate_keystore_dir" ]] || die "choose either --keystore or --generate-keystore-dir, not both"
 [[ -z "$import_private_key_env" || -n "$generate_keystore_dir" ]] || die "--import-private-key-env requires --generate-keystore-dir"
 [[ "$foundry_account" =~ ^[A-Za-z0-9._-]+$ ]] || die "--foundry-account must match [A-Za-z0-9._-]+"
 [[ "$foundry_account" != -* && "$foundry_account" != *..* && "$foundry_account" != */* ]] || die "--foundry-account must not contain path traversal"
 
+require_command cast
 require_command gh
-require_command tar
-[[ -d "$cliproxy_auth_dir" ]] || die "CLIProxy auth directory not found: $cliproxy_auth_dir"
+
+if [[ -n "$generate_keystore_dir" && "$force_keystore_password" == 1 && -e "${generate_keystore_dir%/}/$foundry_account" ]]; then
+  die "refusing to replace the password for an existing generated keystore; create a new keystore path instead"
+fi
 
 umask 077
-cliproxy_auth_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-auth.XXXXXX")"
-cliproxy_auth_archive="$cliproxy_auth_tmpdir/cliproxy-auth.tgz"
-cleanup() {
-  rm -rf "$cliproxy_auth_tmpdir"
-}
-trap cleanup EXIT
-tar -czf "$cliproxy_auth_archive" -C "$cliproxy_auth_dir" .
-
-if [[ -n "$keystore" || -n "$generate_keystore_dir" ]]; then
-  require_command cast
-  [[ -n "$keystore_password_file" ]] || die "--keystore-password-file is required with signer setup"
-  if [[ "$init_keystore_password" == 1 && ! -f "$keystore_password_file" ]]; then
+if [[ "$init_keystore_password" == 1 || "$force_keystore_password" == 1 ]]; then
+  if [[ -f "$keystore_password_file" && "$force_keystore_password" != 1 ]]; then
+    chmod 600 "$keystore_password_file"
+    echo "keystore_password_created=0"
+  else
+    [[ -z "$keystore" || "$force_keystore_password" != 1 ]] || die "refusing to replace the password for an existing keystore; create a new password file path instead"
     mkdir -p "$(dirname "$keystore_password_file")"
     tmp="$(dirname "$keystore_password_file")/.keystore-password.$$"
     random_password > "$tmp"
     chmod 600 "$tmp"
     mv "$tmp" "$keystore_password_file"
     echo "keystore_password_created=1"
-  elif [[ "$init_keystore_password" == 1 ]]; then
-    chmod 600 "$keystore_password_file"
-    echo "keystore_password_created=0"
   fi
-  [[ -f "$keystore_password_file" ]] || die "keystore password file not found: $keystore_password_file"
 fi
 
-if [[ -n "$keystore" ]]; then
-  [[ -f "$keystore" ]] || die "keystore not found: $keystore"
-fi
+[[ -f "$keystore_password_file" ]] || die "keystore password file not found: $keystore_password_file"
 
 if [[ -n "$generate_keystore_dir" ]]; then
   mkdir -p "$generate_keystore_dir"
@@ -145,30 +162,37 @@ if [[ -n "$generate_keystore_dir" ]]; then
     private_key="$(printenv "$import_private_key_env" || true)"
     [[ "$private_key" =~ ^0x[0-9a-fA-F]{64}$ ]] || die "$import_private_key_env must contain a 0x-prefixed private key"
     CAST_UNSAFE_PASSWORD="$password" cast wallet import "$foundry_account" --keystore-dir "$generate_keystore_dir" --private-key "$private_key"
+    unset private_key
   else
     CAST_PASSWORD="$password" cast wallet new "$generate_keystore_dir" "$foundry_account"
   fi
+  unset password
+  echo "keystore_created=1"
 fi
 
-echo "Setting defender GitHub Secrets${repo:+ for $repo}"
-set_base64_file_secret CLIPROXY_AUTH_TGZ_B64 "$cliproxy_auth_archive"
-set_secret INFERENCE_API_KEY "${INFERENCE_API_KEY:-$(random_password)}"
+[[ -f "$keystore" ]] || die "keystore not found: ${keystore:-<unset>}"
+defender_address="$(cast wallet address --keystore "$keystore" --password-file "$keystore_password_file" | tr -d '\r\n')"
+[[ "$defender_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "failed to derive defender signer address from keystore"
+other_signer="$(get_variable PROPOSER_SIGNER_ADDRESS)"
+if [[ -n "$other_signer" && "${defender_address,,}" == "${other_signer,,}" ]]; then
+  die "Proposer and Defender signer addresses must differ"
+fi
+inference_api_key="${DEFENDER_INFERENCE_API_KEY:-$(random_password)}"
+
+echo "Setting dedicated Defender GitHub configuration${repo:+ for $repo}"
+set_secret DEFENDER_INFERENCE_API_KEY "$inference_api_key"
 set_secret RESEND_API_KEY "$RESEND_API_KEY"
 set_secret DEFENDER_EMAIL_TO "$email"
 if [[ -n "$from_email" ]]; then
   set_secret DEFENDER_EMAIL_FROM "$from_email"
 fi
+set_base64_file_secret DEFENDER_KEYSTORE_JSON_B64 "$keystore"
+set_secret DEFENDER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
+set_secret DEFENDER_FOUNDRY_ACCOUNT "$foundry_account"
+set_variable DEFENDER_SIGNER_ADDRESS "$defender_address"
+unset inference_api_key
 
-if [[ -n "$keystore" ]]; then
-  defender_address="$(cast wallet address --keystore "$keystore" --password-file "$keystore_password_file" | tr -d '\r\n')"
-  [[ "$defender_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "failed to derive defender signer address from keystore"
-  set_secret DEFENDER_KEYSTORE_JSON_B64 "$(base64_file "$keystore")"
-  set_secret DEFENDER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
-  set_secret DEFENDER_FOUNDRY_ACCOUNT "$foundry_account"
-  echo "configured=cliproxy,email,onchain-veto"
-  echo "defender_signer=$defender_address"
-else
-  echo "configured=cliproxy,email,alert-only"
-fi
-
-echo "next_step=edit .github/dtf-operator.yml and enable GitHub Actions"
+echo "configured=defender-gateway,email,defender-signer"
+echo "foundry_account=$foundry_account"
+echo "signer_address=$defender_address"
+echo "next_step=seed the dedicated Defender CPA GitStore with a Defender-only OAuth login, then initialize the distinct Defender journal branch"
