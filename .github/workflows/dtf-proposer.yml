@@ -14,6 +14,7 @@ on:
           - dry-run
           - observe-only
           - live-one-cycle
+          - controlled-veto-test
       run_hours:
         description: Optional RUN_HOURS override for this manual dispatch
         required: false
@@ -249,6 +250,69 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p proposer-data
+          if [[ "$MODE_INPUT" == 'controlled-veto-test' ]]; then
+            [[ "$CONFIRM_LIVE_BROADCAST_INPUT" == 'true' ]] || { echo 'controlled veto test requires confirm_live_broadcast=true' >&2; exit 2; }
+            export CONTROLLED_GOVERNOR='0xf5b5471b35c70BDc984b295044De1d7e30ed1cAB'
+            export CONTROLLED_FOLIO='0xd45e4170834a803D084b2bB145c9ad08f3BdD651'
+            export CONTROLLED_TIMELOCK='0x4a3c68A51dE9701346FDeB924dABFd1E7CA8Cf82'
+            export CONTROLLED_ACTION_DATA='0x207c8eed00000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000de0b6b3a76400000000000000000000000000000000000000000000000000000de0b6b3a76400000000000000000000000000000000000000000000000000000000000000015180000000000000000000000000000000000000000000000000000000000003f48000000000000000000000000000000000000000000000000000000000000000010000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000d3ed1781a084600000000000000000000000000000000000000000000000000034fb45e0682110000000000000000000000000000000000000000000000000000d3ed1781a0840000000000000000000000000000000000000003279c3421f566668af2c2e000000000000000000000000000000000000000003279c3421f566668af2c2e0001000000000000000000000000000000000000000000000000000000e8e22e1c470000000000000000000000000000000000000000000000000000000000000001'
+            controlled_description=$'DTF Operator Production Acceptance Veto Test 4: malformed WETH rebalance\nFolio: 0xd45e4170834a803D084b2bB145c9ad08f3BdD651\nChain: Base (8453)\nPurpose: controlled negative acceptance test; reversed price bounds and a non-cash target violate safety and must be vetoed\nBasket delta: 100%'
+            CONTROLLED_DESCRIPTION_B64="$(printf '%s' "$controlled_description" | base64 -w0)"
+            export CONTROLLED_DESCRIPTION_B64
+            docker run --rm \
+              --platform linux/amd64 \
+              --network dtf-inference \
+              --entrypoint bash \
+              -e BASE_RPC_URL -e INFERENCE_API_KEY \
+              -e PROPOSER_KEYSTORE_JSON_B64 -e PROPOSER_KEYSTORE_PASSWORD -e PROPOSER_SIGNER_ADDRESS \
+              -e MIN_SIGNER_BALANCE_WEI -e CONTROLLED_GOVERNOR -e CONTROLLED_FOLIO -e CONTROLLED_TIMELOCK \
+              -e CONTROLLED_ACTION_DATA -e CONTROLLED_DESCRIPTION_B64 \
+              -v "$PWD/proposer-data:/data" \
+              "$DTF_OPERATOR_IMAGE" -ceu '
+                umask 077
+                mkdir -p /foundry/keystores
+                printf "%s" "$PROPOSER_KEYSTORE_JSON_B64" | base64 -d > /foundry/keystores/dtf-proposer
+                printf "%s" "$PROPOSER_KEYSTORE_PASSWORD" > /foundry/keystores/.dtf-operator.password
+                actual_signer="$(cast wallet address --keystore /foundry/keystores/dtf-proposer --password-file /foundry/keystores/.dtf-operator.password)"
+                [[ "${actual_signer,,}" == "${PROPOSER_SIGNER_ADDRESS,,}" ]] || { echo "configured keystore signer does not match PROPOSER_SIGNER_ADDRESS" >&2; exit 2; }
+                LIVE=1 FOUNDRY_ACCOUNT=dtf-proposer FOUNDRY_KEYSTORE_DIR=/foundry/keystores \
+                  FOUNDRY_KEYSTORE_PASSWORD_FILE=/foundry/keystores/.dtf-operator.password \
+                  node dist/cli/proposer-preflight.js --chain 8453 --folio "$CONTROLLED_FOLIO" \
+                  --rpc "$BASE_RPC_URL" --out /data/controlled-preflight.json
+                action_error=""
+                if action_error="$(cast call "$CONTROLLED_FOLIO" --from "$CONTROLLED_TIMELOCK" \
+                  --data "$CONTROLLED_ACTION_DATA" --rpc-url "$BASE_RPC_URL" 2>&1)"; then
+                  echo "controlled proposal action unexpectedly succeeds" >&2
+                  exit 2
+                fi
+                [[ "$action_error" == *0x146142ab* ]] || { echo "controlled action did not fail with Folio__EmptyRebalance" >&2; exit 2; }
+                description="$(printf "%s" "$CONTROLLED_DESCRIPTION_B64" | base64 -d)"
+                proposal_id="$(cast call "$CONTROLLED_GOVERNOR" \
+                  "proposeOptimistic(address[],uint256[],bytes[],string)(uint256)" \
+                  "[$CONTROLLED_FOLIO]" "[0]" "[$CONTROLLED_ACTION_DATA]" "$description" \
+                  --from "$PROPOSER_SIGNER_ADDRESS" --rpc-url "$BASE_RPC_URL")"
+                proposal_id="${proposal_id%% *}"
+                [[ "$proposal_id" == "105081562706859311080898875060915249643529136386594461934225862090459455227345" ]] || { echo "controlled proposal ID does not match reviewed payload" >&2; exit 2; }
+                cast send "$CONTROLLED_GOVERNOR" \
+                  "proposeOptimistic(address[],uint256[],bytes[],string)" \
+                  "[$CONTROLLED_FOLIO]" "[0]" "[$CONTROLLED_ACTION_DATA]" "$description" \
+                  --keystore /foundry/keystores/dtf-proposer \
+                  --password-file /foundry/keystores/.dtf-operator.password \
+                  --rpc-url "$BASE_RPC_URL" --json > /data/controlled-proposal-receipt.json
+                CONTROLLED_PROPOSAL_ID="$proposal_id" node -e "
+                  const fs = require(\"node:fs\")
+                  const receipt = JSON.parse(fs.readFileSync(\"/data/controlled-proposal-receipt.json\", \"utf8\"))
+                  if (receipt.status !== \"0x1\" && receipt.status !== 1) throw new Error(\"controlled proposal transaction failed\")
+                  const summary = { proposalId: process.env.CONTROLLED_PROPOSAL_ID, transactionHash: receipt.transactionHash, blockNumber: receipt.blockNumber, status: receipt.status }
+                  fs.writeFileSync(\"/data/controlled-proposal-summary.json\", JSON.stringify(summary, null, 2) + \"\\n\")
+                  console.log(JSON.stringify(summary))
+                "
+              '
+            docker run --rm --platform linux/amd64 --entrypoint sh \
+              -v "$PWD/proposer-data:/data" "$DTF_OPERATOR_IMAGE" \
+              -c 'chmod -R a+rX /data'
+            exit 0
+          fi
           docker run --rm \
             --platform linux/amd64 \
             --network dtf-inference \
