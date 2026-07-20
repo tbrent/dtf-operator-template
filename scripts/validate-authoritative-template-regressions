@@ -73,6 +73,10 @@ sed -i 's#/v0/management/auth-files#/v1/models#g' "$fixture/.github/workflows/dt
 expect_rejected gitstore_readiness_endpoint "$fixture"
 
 fixture="$(new_fixture)"
+sed -i '/api.github.com\/repos\/\$repo_slug\/branches\/\$GITSTORE_GIT_BRANCH/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected gitstore_api_diagnostic "$fixture"
+
+fixture="$(new_fixture)"
 sed -i '/git ls-remote --exit-code/d' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected gitstore_branch_access "$fixture"
 
