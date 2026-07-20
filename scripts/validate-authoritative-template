@@ -60,7 +60,10 @@ for workflow in "$proposer" "$defender"; do
   require_contains "$workflow" 'Proposer and Defender signers must differ' "signer isolation is not asserted in $workflow"
   require_contains "$workflow" 'Git URLs must not contain credentials' "credential-bearing Git URLs are not rejected in $workflow"
   require_contains "$workflow" 'persist-credentials: false' "configuration checkout must not persist the GitHub token in $workflow"
+  require_contains "$workflow" 'git ls-remote --exit-code "$GITSTORE_GIT_URL" "refs/heads/$GITSTORE_GIT_BRANCH"' "GitStore token and branch access are not checked before startup in $workflow"
+  require_contains "$workflow" '/v0/management/auth-files' "CLIProxyAPI readiness must use the authenticated management endpoint in $workflow"
 done
+reject_pattern '/v1/models' 'CLIProxyAPI readiness must not depend on inference API-key configuration' "$proposer" "$defender"
 for file in "$proposer" "$defender" "$init_journal" "$readme"; do
   while IFS= read -r line; do
     [[ "$line" == *"$expected_image"* ]] || fail "unexpected operator image reference in $file"
