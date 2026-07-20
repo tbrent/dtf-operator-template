@@ -12,8 +12,8 @@ setup_proposer="$root/scripts/setup-github-proposer"
 setup_defender="$root/scripts/setup-github-defender"
 legacy_cache="$root/scripts/codex-auth-cache"
 
-expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4'
-expected_revision='2d8246d4d31939a668d3586e6241d0b49ababc37'
+expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:b9598fed1631fdf51202519c6c05a1f05f570abe770db3ab547f58f253f9f36d'
+expected_revision='1993eff03c3c03ebcdb72dca3fb8ec54ff267d23'
 
 fail() {
   echo "authoritative template validation failed: $*" >&2
