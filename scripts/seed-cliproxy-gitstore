@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: GITSTORE_GIT_TOKEN=<scoped-write-token> scripts/seed-cliproxy-gitstore \
+  --role <proposer|defender> --oauth-identity <label> \
+  --git-url <private-repo-url> --git-branch <branch> [options]
+
+Imports one CLIProxy OAuth login into an empty, dedicated CPA GitStore, proves
+that the records survive a clean clone, and configures the matching GitHub
+Secret and Variables. Run it twice with different OAuth logins and different
+Git write domains. Source OAuth files and any separately retained archives are
+left untouched.
+
+Options:
+  --role <role>                   proposer or defender
+  --oauth-identity <label>        Non-secret operator label for the OAuth login
+  --git-url <url>                 GitStore remote URL without credentials
+  --git-branch <branch>           Dedicated GitStore branch
+  --git-username <username>       Optional HTTP username
+  --cliproxy-auth-dir <path>      Defaults to ~/.cli-proxy-api
+  --repo <owner/repo>             Target GitHub repository
+  -h, --help                      Show this help
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 2
+}
+
+set_secret() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    printf '%s' "$value" | gh secret set "$name" --repo "$repo"
+  else
+    printf '%s' "$value" | gh secret set "$name"
+  fi
+}
+
+set_variable() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    gh variable set "$name" --repo "$repo" --body "$value"
+  else
+    gh variable set "$name" --body "$value"
+  fi
+}
+
+get_variable() {
+  local name="$1"
+  if [[ -n "$repo" ]]; then
+    gh variable get "$name" --repo "$repo" 2>/dev/null || true
+  else
+    gh variable get "$name" 2>/dev/null || true
+  fi
+}
+
+role=""
+oauth_identity=""
+git_url=""
+git_branch=""
+git_username=""
+auth_dir="${HOME:-.}/.cli-proxy-api"
+repo=""
+cliproxy_image="eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --role) role="${2:-}"; shift 2 ;;
+    --oauth-identity) oauth_identity="${2:-}"; shift 2 ;;
+    --git-url) git_url="${2:-}"; shift 2 ;;
+    --git-branch) git_branch="${2:-}"; shift 2 ;;
+    --git-username) git_username="${2:-}"; shift 2 ;;
+    --cliproxy-auth-dir) auth_dir="${2:-}"; shift 2 ;;
+    --repo) repo="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ "$role" == proposer || "$role" == defender ]] || die "--role must be proposer or defender"
+[[ -n "$oauth_identity" ]] || die "--oauth-identity is required"
+[[ "$oauth_identity" =~ ^[A-Za-z0-9._@+-]+$ ]] || die "--oauth-identity must use only safe non-secret label characters"
+[[ -n "$git_url" && -n "$git_branch" ]] || die "--git-url and --git-branch are required"
+[[ "$git_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$git_branch" != *..* && "$git_branch" != */ && "$git_branch" != *//* ]] || die "--git-branch is not a safe branch name"
+case "$git_url" in
+  http://*@*|https://*@*) die "--git-url must not contain credentials" ;;
+esac
+[[ -n "${GITSTORE_GIT_TOKEN:-}" ]] || die "GITSTORE_GIT_TOKEN is required"
+[[ -d "$auth_dir" ]] || die "CLIProxy auth directory not found: $auth_dir"
+command -v docker >/dev/null 2>&1 || die "docker is required"
+command -v curl >/dev/null 2>&1 || die "curl is required"
+command -v gh >/dev/null 2>&1 || die "gh is required"
+command -v jq >/dev/null 2>&1 || die "jq is required"
+command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required"
+
+if [[ "$role" == proposer ]]; then
+  prefix="CPA_PROPOSER"
+  other_prefix="CPA_DEFENDER"
+else
+  prefix="CPA_DEFENDER"
+  other_prefix="CPA_PROPOSER"
+fi
+
+other_url="$(get_variable "${other_prefix}_GITSTORE_URL")"
+other_branch="$(get_variable "${other_prefix}_GITSTORE_BRANCH")"
+other_identity="$(get_variable "${other_prefix}_OAUTH_IDENTITY")"
+if [[ -n "$other_url" && -n "$other_branch" && "$git_url#$git_branch" == "$other_url#$other_branch" ]]; then
+  die "Proposer and Defender CPA GitStore write domains must differ"
+fi
+if [[ -n "$other_identity" && "${oauth_identity,,}" == "${other_identity,,}" ]]; then
+  die "Proposer and Defender CPA OAuth identity labels must differ"
+fi
+
+oauth_file=""
+oauth_identity_record=""
+oauth_count=0
+while IFS= read -r -d '' file; do
+  oauth_count=$((oauth_count + 1))
+  [[ "$oauth_count" == 1 ]] || die "exactly one Codex OAuth JSON record is required per role"
+  name="$(basename "$file")"
+  [[ "$name" =~ ^[A-Za-z0-9._-]+\.json$ ]] || die "unsafe OAuth filename: $name"
+  oauth_identity_record="$(jq -er 'select(.type == "codex") | select((.account_id | type) == "string" and (.account_id | length) > 0) | select((.email | type) == "string" and (.email | length) > 0) | [.account_id, (.email | ascii_downcase)] | @tsv' "$file")" || die "OAuth JSON must be one Codex record with account_id and email"
+  oauth_file="$file"
+done < <(find "$auth_dir" -maxdepth 1 -type f -name '*.json' -print0)
+(( oauth_count == 1 )) || die "exactly one Codex OAuth JSON record is required per role"
+oauth_fingerprint="$(printf '%s' "$oauth_identity_record" | sha256sum | awk '{print $1}')"
+unset oauth_identity_record
+[[ "$oauth_fingerprint" =~ ^[0-9a-f]{64}$ ]] || die "failed to derive OAuth identity fingerprint"
+
+umask 077
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-gitstore.XXXXXX")"
+verify_state_dir=""
+container="cliproxy-gitstore-seed-$$"
+verify_container="cliproxy-gitstore-verify-$$"
+management_password="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+export MANAGEMENT_PASSWORD="$management_password"
+cleanup() {
+  status=$?
+  trap - EXIT
+  for name in "$container" "$verify_container"; do
+    [[ -n "$name" ]] || continue
+    docker rm -f "$name" >/dev/null 2>&1 || true
+  done
+  for dir in "$state_dir" "$verify_state_dir"; do
+    [[ -n "$dir" ]] || continue
+    docker run --rm --entrypoint sh -v "$dir:/state" "$cliproxy_image" \
+      -c 'chmod -R a+rwX /state' >/dev/null 2>&1 || true
+    rm -rf "$dir" >/dev/null 2>&1 || true
+  done
+  exit "$status"
+}
+trap cleanup EXIT
+
+docker run -d \
+  --name "$container" \
+  -p 127.0.0.1:8317:8317 \
+  -e GITSTORE_GIT_URL="$git_url" \
+  -e GITSTORE_GIT_BRANCH="$git_branch" \
+  -e GITSTORE_GIT_USERNAME="$git_username" \
+  -e GITSTORE_GIT_TOKEN \
+  -e GITSTORE_LOCAL_PATH=/state \
+  -e MANAGEMENT_PASSWORD \
+  -v "$state_dir:/state" \
+  "$cliproxy_image" \
+  /CLIProxyAPI/CLIProxyAPI >/dev/null
+
+initial_auth_files=""
+for _ in {1..60}; do
+  if initial_auth_files="$(curl -sf -H "Authorization: Bearer $management_password" http://127.0.0.1:8317/v0/management/auth-files)"; then
+    break
+  fi
+  sleep 1
+done
+[[ -n "$initial_auth_files" ]] || die "CLIProxyAPI did not become ready"
+[[ "$initial_auth_files" == *'"files":[]'* ]] || die "target GitStore already contains OAuth records"
+
+curl -fsS \
+  -X PUT \
+  -H "Authorization: Bearer $management_password" \
+  -H 'Content-Type: application/json' \
+  --data '[]' \
+  http://127.0.0.1:8317/v0/management/api-keys >/dev/null
+
+name="$(basename "$oauth_file")"
+curl -fsS \
+  -X POST \
+  -H "Authorization: Bearer $management_password" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@$oauth_file" \
+  "http://127.0.0.1:8317/v0/management/auth-files?name=$name" >/dev/null
+
+sleep 10
+docker rm -f "$container" >/dev/null
+container=""
+verify_state_dir="$(mktemp -d "${TMPDIR:-/tmp}/cliproxy-gitstore-verify.XXXXXX")"
+docker run -d \
+  --name "$verify_container" \
+  -p 127.0.0.1:8317:8317 \
+  -e GITSTORE_GIT_URL="$git_url" \
+  -e GITSTORE_GIT_BRANCH="$git_branch" \
+  -e GITSTORE_GIT_USERNAME="$git_username" \
+  -e GITSTORE_GIT_TOKEN \
+  -e GITSTORE_LOCAL_PATH=/state \
+  -e MANAGEMENT_PASSWORD \
+  -v "$verify_state_dir:/state" \
+  "$cliproxy_image" \
+  /CLIProxyAPI/CLIProxyAPI >/dev/null
+
+restored_auth_files=""
+for _ in {1..60}; do
+  if restored_auth_files="$(curl -sf -H "Authorization: Bearer $management_password" http://127.0.0.1:8317/v0/management/auth-files)"; then
+    break
+  fi
+  sleep 1
+done
+[[ -n "$restored_auth_files" ]] || die "CLIProxyAPI restore verification did not become ready"
+[[ "$restored_auth_files" != *'"files":[]'* ]] || die "seeded GitStore did not restore OAuth records from the remote branch"
+
+set_secret "${prefix}_GITSTORE_TOKEN" "$GITSTORE_GIT_TOKEN"
+set_variable "${prefix}_GITSTORE_URL" "$git_url"
+set_variable "${prefix}_GITSTORE_BRANCH" "$git_branch"
+set_variable "${prefix}_OAUTH_IDENTITY" "$oauth_identity"
+set_secret "${prefix}_OAUTH_FINGERPRINT" "$oauth_fingerprint"
+set_variable CPA_OAUTH_ISOLATION separate-gitstores-and-logins
+unset oauth_fingerprint
+
+echo "gitstore_role=$role"
+echo "gitstore_seeded_auth_records=$oauth_count"
+echo "gitstore_restore_verified=1"
+echo "source_oauth_files_preserved=1"
+echo "next_step=repeat for the other role with a different OAuth login and Git write domain"

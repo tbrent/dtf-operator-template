@@ -1,197 +1,214 @@
-# dtf-operator-template
+# DTF Operator Template
 
-Forkable deployment template for running Reserve DTF proposer and defender automation from GitHub Actions.
+Fork this repository into a private GitHub repository to operate a DTF/Folio.
+The fork owns public operator configuration and GitHub Actions orchestration.
+Credentials remain in GitHub Secrets or local keystores, while OAuth and
+Defender state are persisted in dedicated private Git repositories.
 
-This template is currently intended for internal operators and testing. Copy it into a dedicated operator repository. A private repository is the default; a public repository is also supported when its non-secret configuration, commit history, workflow logs, artifacts, and cache blobs are safe to disclose. Standard GitHub-hosted runners are free for public repositories. The operator repository owns its GitHub Secrets, GitHub Variables, schedules, artifacts, and defender state. Runtime code is not built here; workflows consume the published image from `ghcr.io/reserve-protocol/dtf-operator` unless `DTF_OPERATOR_IMAGE` is overridden.
+## Published operator identity
 
-Do not commit operator secrets to any repository. Public repositories must keep signer keys, RPC credentials, inference credentials, and email credentials exclusively in GitHub Secrets. Do not open deployment-config PRs against `reserve-protocol/dtf-operator` or `reserve-protocol/dtf-operator-template`.
-
-## Runtime Model
-
-- `DTF Proposer` wakes on a schedule, checks onchain lifecycle state, and exits unless a rebalance lifecycle action is due.
-- `DTF Defender` wakes on a schedule, checks the configured Folio target or targets for new optimistic proposals, and exits unless a new `startRebalance()` proposal needs review.
-- Non-secret operator configuration lives in `.github/dtf-operator.yml`.
-- Secret material lives in GitHub Secrets or local Foundry keystores, never in the repository.
-- Both workflows run the same Docker runtime image by default.
-
-This template intentionally does not include Docker Compose files. Local Docker and self-hosted Compose operation are documented in `reserve-protocol/dtf-operator`, which owns the image contract and local runtime helpers.
-
-The mainline setup uses one operator signer for proposing, launching auctions, and Defender vetoes. That signer needs optimistic proposer authority, `AUCTION_LAUNCHER_ROLE`, chain gas, and enough optimistic voting weight to veto malicious optimistic proposals. Proposer, auction launcher, and Defender signers can diverge when an operator has a specific reason to split duties; set the override secrets documented below for those cases.
-
-## Quick Start
-
-1. Create a dedicated operator repository from this template and enable GitHub Actions. Use a public repository only when its non-secret operational history may be disclosed.
-2. Leave `DTF_ACTIONS_ENABLED` unset until config and secrets are ready.
-3. Choose the top-level DTF/Folio that Proposer will operate and, if needed, the additional Folios that Defender will protect.
-4. Edit `.github/dtf-operator.yml` for those targets.
-5. Authenticate CLIProxyAPI locally with its `-codex-login -no-browser` flow; the resulting auth directory defaults to `~/.cli-proxy-api`.
-6. Install and authenticate `gh`, and install Foundry so `cast` is available.
-7. Upload required GitHub Secrets with `scripts/setup-github-proposer` and/or `scripts/setup-github-defender`.
-8. Set repository variable `DTF_ACTIONS_ENABLED=true` in the fork.
-9. Run manual `dry-run` or alert-only tests before relying on scheduled live runs.
-
-The scheduled jobs are guarded by `DTF_ACTIONS_ENABLED=true` and skip in `reserve-protocol/dtf-operator-template` itself.
-
-## Image Selection
-
-Default runtime image:
+Every operator runtime execution is fixed to this reviewed production image:
 
 ```text
-ghcr.io/reserve-protocol/dtf-operator:stable
+ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4
 ```
 
-`stable` is the default branch-based channel for operator forks. It can receive background bugfix rollouts without moving every fork to the source repository's `main` integration channel.
-
-Set repository variable `DTF_OPERATOR_IMAGE` to choose a different channel or pin a specific image. Use `ghcr.io/reserve-protocol/dtf-operator:main` for integration testing, or a `sha-*` or `v*` tag when a fork needs immutable runtime selection. The default GHCR package is public, so the workflows pull it without GHCR credentials. Deployment workflows do not build from source and do not use `SDK_READ_TOKEN`.
-
-The workflows separately pin the tested CLIProxyAPI sidecar by immutable image digest. Leave `CLI_PROXY_IMAGE` unset for that default. Set it only when deliberately testing another digest; mutable tags such as `latest` are not recommended for production operators.
-
-## Supported Chains
-
-Set top-level `folioAddress` and `chainId` in `.github/dtf-operator.yml` for the DTF that Proposer operates. Defender uses that same target when `defender.folios` is omitted or empty. For multi-Folio Defender operation, each `defender.folios` entry supplies its own `folioAddress`, `chainId`, `governorAddress`, and `proposalScan.fromBlock`.
-
-| Chain | `chainId` | Chain-specific RPC variable |
-| --- | ---: | --- |
-| Ethereum Mainnet | `1` | `MAINNET_RPC_URL` |
-| BNB Smart Chain | `56` | `BSC_RPC_URL` |
-| Base | `8453` | `BASE_RPC_URL` |
-
-`RPC_URL` remains a generic fallback. Prefer chain-specific variables when Defender targets more than one chain from the same fork.
-
-## GitHub Secrets And Variables
-
-Common runtime inputs:
+The image must resolve to `linux/amd64`. Its
+`org.opencontainers.image.revision` OCI label must equal:
 
 ```text
-RPC_URL or BASE_RPC_URL / MAINNET_RPC_URL / BSC_RPC_URL
-CLIPROXY_AUTH_TGZ_B64
-INFERENCE_API_KEY
+2d8246d4d31939a668d3586e6241d0b49ababc37
 ```
 
-Scout ETL endpoint, provider, and short-term API key access are owned by the published runtime image. Forks do not configure Scout ETL.
+Both workflows pull that digest with an explicit platform and reject any
+platform or source-revision mismatch. There is no image input or repository
+variable override. The workflows do not check out operator source or build an
+operator image per run.
 
-Required repository variable to enable workflows:
+## Production isolation model
 
-```text
-DTF_ACTIONS_ENABLED=true
+Production has five independent authorities and three independent Git write
+domains:
+
+| Role | OAuth authority | Git write domain | EVM authority | Concurrency |
+| --- | --- | --- | --- | --- |
+| Proposer | Dedicated CPA login | `CPA_PROPOSER_GITSTORE_URL` + `CPA_PROPOSER_GITSTORE_BRANCH` | `PROPOSER_SIGNER_ADDRESS` | `dtf-proposer-<repository_id>` |
+| Defender inference | Different dedicated CPA login | `CPA_DEFENDER_GITSTORE_URL` + `CPA_DEFENDER_GITSTORE_BRANCH` | None | `dtf-defender-<repository_id>` |
+| Defender journal and veto | N/A | `OPERATOR_STATE_GIT_URL` + `OPERATOR_STATE_GIT_BRANCH` | `DEFENDER_SIGNER_ADDRESS` | `dtf-defender-<repository_id>` |
+
+The workflows require the two OAuth identity labels to differ, require
+`CPA_OAUTH_ISOLATION=separate-gitstores-and-logins`, require the three
+repository/branch pairs to be pairwise distinct, and require the Proposer and
+Defender EVM addresses to differ. If infrastructure policy cannot provide
+these independent authorities, do not enable production schedules.
+
+CPA GitStore is authoritative only for each role's CLIProxy OAuth records. The
+third private repository is authoritative only for the Defender journal. The
+Defender workflow runs with `OPERATOR_STATE_MODE=git-authoritative`, restores
+the journal before processing, and CAS-persists journal mutations. Proposer
+artifacts remain per-run GitHub artifacts; Actions cache is not an authority
+for OAuth, transaction state, alert state, or Defender state.
+
+## Fresh production setup
+
+The rollout supports fresh authoritative initialization only. It does not
+import cached Defender files or provide a legacy state migration path.
+
+### 1. Prepare the private repositories
+
+Create or select three private Git write domains:
+
+1. Proposer CPA GitStore repository and branch.
+2. Defender CPA GitStore repository and branch.
+3. Defender journal repository and an absent branch for initialization.
+
+Use scoped tokens that can write only their assigned repository and branch.
+Never put a token, username/password pair, or other credential in a Git URL.
+Protect the Defender journal branch with a policy that forbids force-pushes and deletion.
+Apply equivalent least-privilege and retention controls to both CPA
+GitStore branches.
+
+### 2. Create separate CPA OAuth logins
+
+On a trusted operator workstation, complete the CLIProxy Codex login flow once
+for Proposer and once for Defender. Use different OAuth accounts and separate
+local auth directories. Choose non-secret identity labels that operators can
+audit, such as distinct account aliases; the labels must represent the actual
+different logins.
+
+Seed the Proposer GitStore:
+
+```bash
+GITSTORE_GIT_TOKEN='<proposer-scoped-token>' \
+scripts/seed-cliproxy-gitstore \
+  --role proposer \
+  --oauth-identity '<proposer-account-label>' \
+  --cliproxy-auth-dir ~/.cli-proxy-api-proposer \
+  --git-url https://github.com/<owner>/<proposer-cpa-repo>.git \
+  --git-branch <proposer-cpa-branch> \
+  --repo <owner/private-operator-fork>
 ```
 
-Optional repository variables:
+Seed the Defender GitStore with the different login and write domain:
 
-```text
-DTF_OPERATOR_IMAGE
-CLI_PROXY_IMAGE
-MIN_SIGNER_BALANCE_WEI
-INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS
-PROPOSER_CODEX_MODEL
-PROPOSER_CODEX_REASONING_EFFORT
-DEFENDER_CODEX_MODEL
-DEFENDER_CODEX_REASONING_EFFORT
+```bash
+GITSTORE_GIT_TOKEN='<defender-scoped-token>' \
+scripts/seed-cliproxy-gitstore \
+  --role defender \
+  --oauth-identity '<defender-account-label>' \
+  --cliproxy-auth-dir ~/.cli-proxy-api-defender \
+  --git-url https://github.com/<owner>/<defender-cpa-repo>.git \
+  --git-branch <defender-cpa-branch> \
+  --repo <owner/private-operator-fork>
 ```
 
-Before scanning or proposing, each workflow queries CLIProxyAPI's authenticated management endpoint to verify that an active Codex OAuth credential is loaded. This check performs no model inference and consumes no subscription tokens. A failed check stops the operator before onchain work and sends a Resend email when `RESEND_API_KEY` and `DEFENDER_EMAIL_TO` are configured. Alerts are rate-limited by persisted workflow state; `INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS` defaults to 86400 seconds.
+The helper requires exactly one Codex OAuth JSON record per role, refuses a
+target that already contains OAuth records, uploads each role's token through
+standard input, and verifies that the record survives a clean GitStore clone.
+It hashes the stable OAuth `account_id` and email into a role-specific GitHub
+Secret without printing either field; workflows reject equal fingerprints. It
+does not alter the source OAuth directory.
 
-The management endpoint is reachable only inside the job's private Docker network. The sidecar port exposed on the runner remains bound to `127.0.0.1`, the control panel is disabled, and the management key is the same per-repository `INFERENCE_API_KEY` Secret used by the runtime.
+Do not delete retained OAuth archives, including an existing
+`CLIPROXY_AUTH_TGZ_B64` secret or offline encrypted copies, during rollout.
+The production workflows do not consume them, but removal is a separate
+operator decision after production acceptance and backup retention are
+confirmed. The setup helpers never delete GitHub Secrets or local archives.
 
-`INFERENCE_API_KEY` is not an OpenAI key and does not grant access to a model account. It is a random local gateway and management password for this repository's sidecar. Both setup helpers generate and upload a fresh value when the environment variable `INFERENCE_API_KEY` is unset; set that environment variable only when you deliberately want to choose the value.
+### 3. Initialize the Defender journal
 
-`CLIPROXY_AUTH_TGZ_B64` is a base64-encoded CLIProxy OAuth auth archive. It bootstraps each runner and encrypts the refreshed CLIProxy auth archive saved in GitHub Actions cache after each run, so refresh-token rotations survive ephemeral runners. If you replace the bootstrap archive, update `CLIPROXY_AUTH_TGZ_B64`; the old encrypted cache will fail to decrypt and the next workflow run will bootstrap from the new secret.
+The target journal branch must not exist. Initialize an empty authoritative
+journal from the exact published image:
 
-`proposer.inference` and `defender.inference` in `.github/dtf-operator.yml` are required and default this fork to `gpt-5.5` with `medium` reasoning effort. The optional `PROPOSER_CODEX_*` and `DEFENDER_CODEX_*` repository variables override the matching YAML values without committing config changes. Reasoning effort must be `minimal`, `low`, `medium`, `high`, or `xhigh`.
-
-Required for live proposer broadcasts:
-
-```text
-PROPOSER_KEYSTORE_JSON_B64
-PROPOSER_KEYSTORE_PASSWORD
-FOUNDRY_ACCOUNT
+```bash
+OPERATOR_STATE_GIT_TOKEN='<journal-scoped-token>' \
+scripts/initialize-defender-journal \
+  --git-url https://github.com/<owner>/<defender-journal-repo>.git \
+  --git-branch <defender-journal-branch> \
+  --repo <owner/private-operator-fork>
 ```
 
-Optional auction-launcher signer overrides:
+The initializer imports no prior runtime files. It refuses existing branch
+state, performs a clean authoritative restore, and never force-pushes or
+deletes a private branch. If initialization stops after its first persisted
+generation, it reports that the branch was intentionally left intact; inspect
+and resolve that state explicitly rather than deleting it automatically.
 
-```text
-AUCTION_LAUNCHER_KEYSTORE_JSON_B64
-AUCTION_LAUNCHER_KEYSTORE_PASSWORD
-AUCTION_LAUNCHER_FOUNDRY_ACCOUNT
+### 4. Configure distinct EVM signers
+
+Generate or upload the Proposer signer:
+
+```bash
+scripts/setup-github-proposer \
+  --generate-keystore-dir ~/.dtf-operator/production/proposer-keystores \
+  --keystore-password-file ~/.dtf-operator/production/proposer-password \
+  --init-keystore-password \
+  --repo <owner/private-operator-fork>
 ```
 
-When auction-launcher-specific secrets are unset, the runtime can use the proposer signer. `proposer.auctionLauncherAddress` is still explicit in `.github/dtf-operator.yml`; set it only after granting that signer `AUCTION_LAUNCHER_ROLE`.
+The helper sets `PROPOSER_KEYSTORE_JSON_B64`,
+`PROPOSER_KEYSTORE_PASSWORD`, `PROPOSER_FOUNDRY_ACCOUNT`,
+`PROPOSER_INFERENCE_API_KEY`, and the `PROPOSER_SIGNER_ADDRESS` repository
+variable. Fund the address and grant the optimistic proposer permissions needed
+for the configured Folio. Configure a separate auction-launcher keystore only
+when the deployment intentionally separates that role.
 
-Required for defender alert-only mode:
+Generate or upload the different Defender signer:
 
-```text
-RESEND_API_KEY
-DEFENDER_EMAIL_TO
+```bash
+RESEND_API_KEY='<resend-key>' \
+scripts/setup-github-defender \
+  --email '<operator-alert-address>' \
+  --generate-keystore-dir ~/.dtf-operator/production/defender-keystores \
+  --keystore-password-file ~/.dtf-operator/production/defender-password \
+  --init-keystore-password \
+  --repo <owner/private-operator-fork>
 ```
 
-Optional defender email sender override:
+The helper sets `DEFENDER_KEYSTORE_JSON_B64`,
+`DEFENDER_KEYSTORE_PASSWORD`, `DEFENDER_FOUNDRY_ACCOUNT`,
+`DEFENDER_INFERENCE_API_KEY`, email Secrets, and the
+`DEFENDER_SIGNER_ADDRESS` repository variable. Delegate enough optimistic
+voting power to this signer for every configured governor and fund it on every
+required chain. It must not be the Proposer signer.
 
-```text
-DEFENDER_EMAIL_FROM
-```
+The two role-specific inference keys are gateway credentials, not CPA OAuth
+identities. CPA identity isolation comes from the two independently created
+OAuth logins and their dedicated GitStores.
 
-Optional separate defender veto signer:
+### 5. Configure Folios and RPC access
 
-```text
-DEFENDER_KEYSTORE_JSON_B64
-DEFENDER_KEYSTORE_PASSWORD
-DEFENDER_FOUNDRY_ACCOUNT
-```
+Edit [`.github/dtf-operator.yml`](.github/dtf-operator.yml):
 
-When Defender-specific signer secrets are unset, the unchanged workflows pass proposer signer secrets so Defender vetoes can use the main operator signer.
+- Set top-level `folioAddress` and `chainId` for Proposer.
+- Set `proposer.optimisticProposerAddress` to the configured Proposer signer.
+- Set `proposer.proposalScan.fromBlock` before production operation.
+- Add every Defender target under `defender.folios`, including its current
+  `governorAddress` and `proposalScan.fromBlock`, or use the top-level target for
+  single-Folio operation.
+- Keep `defender.maxVetoDelayPlusPeriod` at `1209600s`, exactly 14 days.
 
-## Operator Config
+Configure `RPC_URL`, `MAINNET_RPC_URL`, `BSC_RPC_URL`, or `BASE_RPC_URL` as
+GitHub Secrets whenever the URL contains authentication. Never store an
+authenticated RPC URL in a repository variable, workflow, config file, log, or
+artifact.
 
-Edit `.github/dtf-operator.yml` in your operator repository:
+The runtime reads governor behavior onchain and rejects any optimistic veto
+delay plus voting period above the configured 1,209,600-second maximum.
+Equality is accepted. This runtime release does not use a repository-configured
+governor implementation allowlist.
+
+## Multi-Folio Defender behavior
+
+A non-empty `defender.folios` list replaces the top-level target for Defender
+only. Proposer still operates the top-level Folio. Example:
 
 ```yaml
-version: 1
-folioAddress: "0xYourDtfOrFolioAddress"
-chainId: 8453
-proposer:
-  rebalanceCadence: 30d
-  inference:
-    model: gpt-5.5
-    reasoningEffort: medium
-  optimisticProposerAddress: "0xGeneratedProposerSignerAddress"
-  auctionLauncherAddress:
-  proposalScan:
-    fromBlock: 12345678
-defender:
-  frequencyMinutes: 30
-  proposalScan:
-    fromBlock: 12345678
-  requireAiApproval: true
-  alertOnlyWithoutSigner: true
-  inference:
-    model: gpt-5.5
-    reasoningEffort: medium
-```
-
-Top-level `folioAddress` and `chainId` always identify the Proposer target. They are also the backward-compatible single-Folio Defender target when `defender.folios` is omitted or empty. `proposer.rebalanceCadence` is the deterministic auction cadence. For example, `30d` means the next rebalance auction should start at least 30 days after the first auction from the latest successful rebalance.
-
-`defender.frequencyMinutes` is configurable and may be raised above `30`. It gates the workflow's 15-minute wakeups; it is not a hard maximum delay. GitHub Actions schedules are best-effort, so an eligible run can start later than the configured interval during platform congestion or while the repository-wide concurrency lock is occupied.
-
-Set `proposer.proposalScan.fromBlock` before enabling scheduled runs. In legacy single-Folio Defender mode, also set `defender.proposalScan.fromBlock`; in multi-Folio mode, set `proposalScan.fromBlock` on every `defender.folios` entry instead. Use a chain block before the relevant DTF/Folio's first governance proposal so first-run log scans are bounded and RPC providers do not need to scan from genesis.
-
-`proposer.optimisticProposerAddress` is the generated proposer signer address used for dry-run optimistic proposal simulation. In the mainline setup, set `proposer.auctionLauncherAddress` to the same address after granting that signer `AUCTION_LAUNCHER_ROLE`.
-
-### Multi-Folio Defender
-
-To protect multiple Folios, add a non-empty `defender.folios` list. This list replaces the top-level target for Defender only; it does not change Proposer behavior.
-
-```yaml
-version: 1
 folioAddress: "<PROPOSER_FOLIO_ADDRESS>"
 chainId: 8453
-proposer:
-  rebalanceCadence: 30d
-  proposalScan:
-    fromBlock: 34567890
-  inference:
-    model: gpt-5.5
-    reasoningEffort: medium
+
 defender:
+  maxVetoDelayPlusPeriod: 1209600s
   folios:
     - folioAddress: "<FIRST_DEFENDER_FOLIO_ADDRESS>"
       chainId: 56
@@ -203,103 +220,113 @@ defender:
       governorAddress: "<SECOND_TRADING_GOVERNOR_ADDRESS>"
       proposalScan:
         fromBlock: 23456789
-  frequencyMinutes: 30
-  requireAiApproval: true
-  alertOnlyWithoutSigner: true
-  inference:
-    model: gpt-5.5
-    reasoningEffort: medium
 ```
 
-Every entry requires the Folio's current trading governor address and an independently chosen scan start block. The runtime verifies the configured governor against the Folio before evaluating or broadcasting a veto. Configure the chain-specific RPC Secret or Variable for every chain represented in the list.
+Defender remains one GitHub Actions job and invokes
+`node dist/cli/run-github-defender.js` once. The runtime selects its serial
+multi-Folio coordinator, isolates each Folio's review state inside the one
+authoritative journal, and serializes use of the one Defender signer. Do not
+create a workflow matrix or a job per Folio.
 
-Multi-Folio Defender remains one GitHub Actions job and invokes `node dist/cli/run-github-defender.js` once. The runtime combines scans by chain, keeps each Folio's review state isolated inside the single Defender state cache, and serializes signing. Do not create a workflow matrix or a job per Folio. The job deliberately continues to use one CLIProxyAPI sidecar, one encrypted OAuth cache, one Defender state cache, one signer Secret set, and the repository-wide concurrency lock.
+## GitHub configuration contract
 
-## Proposer Setup
+Repository Variables:
 
-Authenticate CLIProxyAPI before running either setup helper. Both helpers package the contents of `~/.cli-proxy-api` by default; pass `--cliproxy-auth-dir <path>` when the auth directory is elsewhere. They upload that tar.gz as the base64-encoded `CLIPROXY_AUTH_TGZ_B64` Secret. On the first workflow run, this Secret bootstraps the auth directory; each run then encrypts the refreshed archive with AES-GCM/scrypt and saves it in GitHub Actions cache because Actions cannot write Secrets.
+```text
+CPA_PROPOSER_GITSTORE_URL
+CPA_PROPOSER_GITSTORE_BRANCH
+CPA_PROPOSER_OAUTH_IDENTITY
+CPA_DEFENDER_GITSTORE_URL
+CPA_DEFENDER_GITSTORE_BRANCH
+CPA_DEFENDER_OAUTH_IDENTITY
+CPA_GITSTORE_GIT_USERNAME          # optional
+CPA_OAUTH_ISOLATION                # separate-gitstores-and-logins
+OPERATOR_STATE_GIT_URL
+OPERATOR_STATE_GIT_BRANCH
+PROPOSER_SIGNER_ADDRESS
+DEFENDER_SIGNER_ADDRESS
+DTF_SCHEDULES_ENABLED              # set to true only after acceptance
+```
 
-Generate a new proposer keystore and upload required Secrets:
+Repository Secrets:
+
+```text
+CPA_PROPOSER_GITSTORE_TOKEN
+CPA_DEFENDER_GITSTORE_TOKEN
+CPA_PROPOSER_OAUTH_FINGERPRINT
+CPA_DEFENDER_OAUTH_FINGERPRINT
+OPERATOR_STATE_GIT_TOKEN
+PROPOSER_INFERENCE_API_KEY
+DEFENDER_INFERENCE_API_KEY
+PROPOSER_KEYSTORE_JSON_B64
+PROPOSER_KEYSTORE_PASSWORD
+PROPOSER_FOUNDRY_ACCOUNT
+DEFENDER_KEYSTORE_JSON_B64
+DEFENDER_KEYSTORE_PASSWORD
+DEFENDER_FOUNDRY_ACCOUNT
+RESEND_API_KEY
+DEFENDER_EMAIL_TO
+DEFENDER_EMAIL_FROM                # optional
+RPC_URL / MAINNET_RPC_URL / BSC_RPC_URL / BASE_RPC_URL
+```
+
+Auction-launcher Secrets are optional and remain separate from the required
+Proposer and Defender identities:
+
+```text
+AUCTION_LAUNCHER_KEYSTORE_JSON_B64
+AUCTION_LAUNCHER_KEYSTORE_PASSWORD
+AUCTION_LAUNCHER_FOUNDRY_ACCOUNT
+```
+
+## Validation and rollout
+
+Run the authoritative validator and its focused negative regressions:
 
 ```bash
-scripts/setup-github-proposer \
-  --generate-keystore-dir ~/.dtf-operator/example/proposer-keystores \
-  --keystore-password-file ~/.dtf-operator/example/proposer-password \
-  --cliproxy-auth-dir ~/.cli-proxy-api \
-  --init-keystore-password \
-  --foundry-account example-proposer \
-  --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
+scripts/validate-authoritative-template
+scripts/validate-authoritative-template-regressions
 ```
 
-The helper prints `signer_address`. Fund it with chain gas, grant optimistic proposer authority, grant `AUCTION_LAUNCHER_ROLE` if this signer should open auctions, then update `.github/dtf-operator.yml`.
+The validator checks the exact operator digest and revision, `linux/amd64`
+selection, three independent Git domains, two OAuth identities, distinct EVM
+signers and concurrency groups, Git-authoritative Defender mode, the schedule
+gate, one serial Defender coordinator, the exact 14-day maximum, and removal of
+cache-backed, mutable-image, disposable-branch, source-build, and obsolete
+governor configuration.
 
-Manual proposer tests:
+Manual `workflow_dispatch` runs are available in a private fork even when
+`DTF_SCHEDULES_ENABLED` is absent or false. Start with Proposer `dry-run`, then
+`observe-only`. Review preflight output and artifacts before confirming a
+`live-one-cycle` dispatch. Run Defender once and verify that its journal advances
+in the protected private branch. These manual checks do not enable cron.
 
-- Run `DTF Proposer` with `mode=dry-run` to produce proposal artifacts without live signer material.
-- Run `mode=observe-only` to test live RPC and lifecycle scanning without broadcasting.
-- Run `mode=live-one-cycle` with `confirm_live_broadcast=true` only after reviewing artifacts and signer permissions.
-
-Scheduled proposer runs use `live-one-cycle` behavior automatically.
-
-## Defender Setup
-
-Upload alert-only secrets:
+Only after signer authorities, RPCs, OAuth restoration, journal persistence,
+notification routing, and manual behavior are accepted should an operator set:
 
 ```bash
-RESEND_API_KEY=<key> scripts/setup-github-defender \
-  --email alerts@example.com \
-  --cliproxy-auth-dir ~/.cli-proxy-api \
-  --from-email defender@example.com \
-  --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
+gh variable set DTF_SCHEDULES_ENABLED \
+  --repo <owner/private-operator-fork> \
+  --body true
 ```
 
-Mainline onchain veto mode reuses the proposer signer. Delegate enough optimistic voting weight to the proposer signer address printed by `scripts/setup-github-proposer` for every distinct governance voting token used by the configured governors. Governors that share one voting token recognize the same delegation.
+Removing or changing that variable disables future cron jobs without disabling
+manual dispatch.
 
-Generate a separate defender keystore and upload veto secrets only when the veto signer should diverge from the proposer signer:
+## Operational security
 
-```bash
-RESEND_API_KEY=<key> scripts/setup-github-defender \
-  --email alerts@example.com \
-  --generate-keystore-dir ~/.dtf-operator/example/defender-keystores \
-  --keystore-password-file ~/.dtf-operator/example/defender-password \
-  --init-keystore-password \
-  --foundry-account example-defender \
-  --repo YOUR_GITHUB_OWNER/YOUR_PRIVATE_FORK
-```
-
-For a separate Defender signer, delegate enough optimistic voting weight to the printed defender signer address for every distinct governance voting token used by the configured governors. This does not grant proposer authority. Multi-Folio operation still uses this one Defender signer Secret set; it does not select a different signer per Folio.
-
-Only proposals containing a configured target Folio's `startRebalance()` call are vetted. Non-rebalance proposals are archived and skipped. The cached/signed review ledger keeps review state isolated by Folio and prevents invoking Codex more than once for the same optimistic proposal during normal scheduled operation.
-
-### Pending Veto Transaction Recovery
-
-An unresolved submitted veto transaction intentionally blocks all further Defender signer use across every configured Folio. This signer-wide block prevents another Folio from consuming the shared signer's nonce while the earlier transaction's outcome is unknown. Normal runs continue checking the submitted transaction and release the block after it resolves.
-
-The manual `DTF Defender` workflow exposes `abandon_submitted_veto_tx_hash` only for exceptional recovery. Its value must be the exact `0x`-prefixed, 32-byte hash of the tracked submitted veto transaction; the runtime rejects malformed or non-matching values. Supplying it is a dangerous explicit operator assertion that the transaction can no longer consume the signer nonce. Use it only after independently verifying that the transaction was dropped or replaced, or that its nonce is otherwise safe. Do not use it merely because one RPC endpoint temporarily cannot find the transaction or receipt.
-
-## Signer Overrides
-
-Use the same account by default. Override only the signers that must diverge:
-
-- Proposer account: `FOUNDRY_ACCOUNT`, `PROPOSER_KEYSTORE_JSON_B64`, `PROPOSER_KEYSTORE_PASSWORD`.
-- Auction-launcher account: `AUCTION_LAUNCHER_FOUNDRY_ACCOUNT`, `AUCTION_LAUNCHER_KEYSTORE_JSON_B64`, `AUCTION_LAUNCHER_KEYSTORE_PASSWORD`.
-- Defender account: `DEFENDER_FOUNDRY_ACCOUNT`, `DEFENDER_KEYSTORE_JSON_B64`, `DEFENDER_KEYSTORE_PASSWORD`.
-
-The setup helpers support existing keystores with `--keystore` and `--keystore-password-file`, or new keystores with `--generate-keystore-dir`. They can import a private key from an environment variable with `--import-private-key-env <ENV_VAR>`.
-
-## Operational Safety
-
-- Keep workflows off `pull_request` and never use `pull_request_target` for signer or Codex automation.
-- Run scheduled and manual workflows only from the fork default branch after GitHub Actions is enabled.
-- Use `DTF_ACTIONS_ENABLED=true` as the final arming switch after config and Secrets are ready.
-- Leave `DTF_OPERATOR_IMAGE` unset to follow the default `stable` operator channel, or pin it to a `sha-*` or `v*` tag when production needs explicit runtime changes only.
-- Proposer and Defender share one repo-wide GitHub Actions concurrency lock, `dtf-codex-auth-${{ github.repository_id }}`. If either workflow is running, the other waits instead of running with the same CLIProxy OAuth credentials.
-- A multi-Folio Defender run is intentionally one job with one runtime invocation and serial signing. Keep one sidecar, OAuth cache, Defender state cache, and signer Secret set for the whole configured list.
-- GitHub Actions keeps at most one pending run for that shared lock. If scheduled runs pile up while another Proposer or Defender run is active, older pending runs can be replaced by newer scheduled runs.
-- Do not expect this repository's Defender workflow to catch this repository's own Proposer workflow in parallel. Live Proposer safety must come from its own preflight checks, signer controls, and proposer self-check before broadcast.
-- Treat `CLIPROXY_AUTH_TGZ_B64` and the encrypted CLIProxy auth cache as dedicated to this operator repository. Do not use the same OAuth login in another repo, runner, machine, or concurrent job stream, because refresh tokens may rotate during normal use and an old reused copy can later fail as revoked or already used.
-- Keep this repository private because workflow artifacts and config can reveal operational details even when Secrets are not committed.
-
-## Source Repository
-
-Runtime source, image builds, tests, and local Docker Compose helpers live in `reserve-protocol/dtf-operator`. Open PRs there only for shared source, image, runtime-contract, or local-runner changes. Do not open per-operator config PRs upstream.
+- Never print or commit GitHub tokens, OAuth JSON, keystores or passwords,
+  private keys, authenticated RPC URLs, Resend credentials, inference gateway
+  keys, or plaintext signed transactions.
+- Never put credentials in Git URLs. All helper scripts send GitHub Secrets
+  through standard input and pass Git credentials through environment-backed
+  askpass handling.
+- Treat OAuth files and retained archives as credentials. Keep role-specific
+  copies separate and encrypted at rest.
+- Treat the Defender journal as private operational state. The runtime rejects
+  secret values and plaintext signed transactions in journal content, but the
+  repository still requires strict access control and retention.
+- Do not force-push or delete any persistence branch during routine operation.
+  Resolve conflicts and incomplete initialization explicitly.
+- An exact `proposal_id` manual input is available for reviewed Defender
+  recovery. Do not use it to bypass journal or signer safety checks.

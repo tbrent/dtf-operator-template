@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: OPERATOR_STATE_GIT_TOKEN=<scoped-write-token> \
+  scripts/initialize-defender-journal --git-url <private-repo-url> \
+  --git-branch <branch> [--repo <owner/repo>]
+
+Creates a fresh, empty authoritative Defender journal in an absent private Git
+branch, verifies a clean restore, and configures the matching GitHub Secret and
+Variables. It does not import prior runtime files and refuses an existing
+branch. The helper never deletes or force-pushes a private persistence branch.
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 2
+}
+
+set_secret() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    printf '%s' "$value" | gh secret set "$name" --repo "$repo"
+  else
+    printf '%s' "$value" | gh secret set "$name"
+  fi
+}
+
+set_variable() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$repo" ]]; then
+    gh variable set "$name" --repo "$repo" --body "$value"
+  else
+    gh variable set "$name" --body "$value"
+  fi
+}
+
+get_variable() {
+  local name="$1"
+  if [[ -n "$repo" ]]; then
+    gh variable get "$name" --repo "$repo" 2>/dev/null || true
+  else
+    gh variable get "$name" 2>/dev/null || true
+  fi
+}
+
+git_url=""
+git_branch=""
+repo=""
+operator_image="ghcr.io/reserve-protocol/dtf-operator@sha256:6cdc5c19d2c842575acd94b687febd49a688373caff121ec78649e6749d8a2d4"
+operator_revision="2d8246d4d31939a668d3586e6241d0b49ababc37"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --git-url) git_url="${2:-}"; shift 2 ;;
+    --git-branch) git_branch="${2:-}"; shift 2 ;;
+    --repo) repo="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ -n "$git_url" && -n "$git_branch" ]] || die "--git-url and --git-branch are required"
+[[ "$git_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$git_branch" != *..* && "$git_branch" != */ && "$git_branch" != *//* ]] || die "--git-branch is not a safe branch name"
+case "$git_url" in
+  http://*@*|https://*@*) die "--git-url must not contain credentials" ;;
+esac
+[[ -n "${OPERATOR_STATE_GIT_TOKEN:-}" ]] || die "OPERATOR_STATE_GIT_TOKEN is required"
+command -v docker >/dev/null 2>&1 || die "docker is required"
+command -v gh >/dev/null 2>&1 || die "gh is required"
+
+for prefix in CPA_PROPOSER CPA_DEFENDER; do
+  other_url="$(get_variable "${prefix}_GITSTORE_URL")"
+  other_branch="$(get_variable "${prefix}_GITSTORE_BRANCH")"
+  if [[ -n "$other_url" && -n "$other_branch" && "$git_url#$git_branch" == "$other_url#$other_branch" ]]; then
+    die "Defender journal and CPA GitStore write domains must differ"
+  fi
+done
+
+docker pull --platform linux/amd64 "$operator_image"
+platform="$(docker image inspect "$operator_image" --format '{{.Os}}/{{.Architecture}}')"
+revision="$(docker image inspect "$operator_image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+[[ "$platform" == linux/amd64 ]] || die "operator image must be linux/amd64"
+[[ "$revision" == "$operator_revision" ]] || die "operator OCI revision does not match the reviewed source revision"
+
+umask 077
+state_dir="$(mktemp -d "${TMPDIR:-/tmp}/defender-journal-init.XXXXXX")"
+verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/defender-journal-verify.XXXXXX")"
+initialized=0
+cleanup() {
+  status=$?
+  trap - EXIT
+  for dir in "$state_dir" "$verify_dir"; do
+    docker run --rm --platform linux/amd64 --entrypoint sh -v "$dir:/data" "$operator_image" \
+      -c 'chmod -R a+rwX /data' >/dev/null 2>&1 || true
+    rm -rf "$dir" >/dev/null 2>&1 || true
+  done
+  if [[ "$status" != 0 && "$initialized" == 1 ]]; then
+    echo "error: journal initialization did not complete; the private branch may contain a non-authoritative initial generation and was intentionally left intact" >&2
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+common_args=(
+  --rm
+  --platform linux/amd64
+  -e OPERATOR_STATE_GIT_URL="$git_url"
+  -e OPERATOR_STATE_GIT_BRANCH="$git_branch"
+  -e OPERATOR_STATE_GIT_TOKEN
+  -e OPERATOR_STATE_MODE=git-authoritative
+  -e OPERATOR_STATE_ROOT=/data
+  -v "$state_dir:/data"
+  "$operator_image"
+  node dist/cli/run-defender-state.js
+)
+
+docker run "${common_args[@]}" seed
+initialized=1
+docker run "${common_args[@]}" cutover
+
+docker run --rm \
+  --platform linux/amd64 \
+  -e OPERATOR_STATE_GIT_URL="$git_url" \
+  -e OPERATOR_STATE_GIT_BRANCH="$git_branch" \
+  -e OPERATOR_STATE_GIT_TOKEN \
+  -e OPERATOR_STATE_ROOT=/data \
+  -v "$verify_dir:/data" \
+  "$operator_image" \
+  node dist/cli/run-defender-state.js restore
+
+set_secret OPERATOR_STATE_GIT_TOKEN "$OPERATOR_STATE_GIT_TOKEN"
+set_variable OPERATOR_STATE_GIT_URL "$git_url"
+set_variable OPERATOR_STATE_GIT_BRANCH "$git_branch"
+
+echo "defender_journal_initialized=1"
+echo "defender_journal_restore_verified=1"
+echo "operator_source_revision=$operator_revision"
+echo "next_step=protect the journal branch against force-pushes and deletion before production dispatch"
