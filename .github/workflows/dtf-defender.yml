@@ -5,31 +5,6 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
-      once:
-        description: Run one scan and exit
-        required: false
-        default: true
-        type: boolean
-      run_hours:
-        description: Optional RUN_HOURS override when once=false
-        required: false
-        default: ''
-        type: string
-      poll_seconds:
-        description: Optional POLL_SECONDS override when once=false
-        required: false
-        default: ''
-        type: string
-      proposal_from_block:
-        description: Optional ProposalCreated deployment floor for targeted recovery
-        required: false
-        default: ''
-        type: string
-      proposal_id:
-        description: Optional exact proposal ID for durable veto recovery
-        required: false
-        default: ''
-        type: string
       proposal_log_chunk_blocks:
         description: Optional ProposalCreated log chunk size
         required: false
@@ -46,8 +21,8 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:b9598fed1631fdf51202519c6c05a1f05f570abe770db3ab547f58f253f9f36d
-  DTF_OPERATOR_SOURCE_REVISION: 1993eff03c3c03ebcdb72dca3fb8ec54ff267d23
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07
+  DTF_OPERATOR_SOURCE_REVISION: 87bddadbc97eaa8dd006b8a048022db537c936c7
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
@@ -72,9 +47,7 @@ jobs:
           CPA_DEFENDER_GITSTORE_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
           CPA_DEFENDER_GITSTORE_BRANCH: ${{ vars.CPA_DEFENDER_GITSTORE_BRANCH }}
           CPA_DEFENDER_GITSTORE_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
-          OPERATOR_STATE_GIT_URL: ${{ vars.OPERATOR_STATE_GIT_URL }}
           OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
-          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.OPERATOR_STATE_GIT_TOKEN }}
           CPA_PROPOSER_OAUTH_IDENTITY: ${{ vars.CPA_PROPOSER_OAUTH_IDENTITY }}
           CPA_DEFENDER_OAUTH_IDENTITY: ${{ vars.CPA_DEFENDER_OAUTH_IDENTITY }}
           CPA_PROPOSER_OAUTH_FINGERPRINT: ${{ secrets.CPA_PROPOSER_OAUTH_FINGERPRINT }}
@@ -91,7 +64,7 @@ jobs:
           for required in \
             CPA_PROPOSER_GITSTORE_URL CPA_PROPOSER_GITSTORE_BRANCH \
             CPA_DEFENDER_GITSTORE_URL CPA_DEFENDER_GITSTORE_BRANCH CPA_DEFENDER_GITSTORE_TOKEN \
-            OPERATOR_STATE_GIT_URL OPERATOR_STATE_GIT_BRANCH OPERATOR_STATE_GIT_TOKEN \
+            OPERATOR_STATE_GIT_BRANCH \
             CPA_PROPOSER_OAUTH_IDENTITY CPA_DEFENDER_OAUTH_IDENTITY \
             CPA_PROPOSER_OAUTH_FINGERPRINT CPA_DEFENDER_OAUTH_FINGERPRINT CPA_OAUTH_ISOLATION \
             PROPOSER_SIGNER_ADDRESS DEFENDER_SIGNER_ADDRESS \
@@ -103,11 +76,22 @@ jobs:
           [[ "${CPA_PROPOSER_OAUTH_IDENTITY,,}" != "${CPA_DEFENDER_OAUTH_IDENTITY,,}" ]] || { echo 'Proposer and Defender CPA OAuth identities must differ' >&2; exit 2; }
           [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ && "$CPA_DEFENDER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]] || { echo 'CPA OAuth identity fingerprints are invalid' >&2; exit 2; }
           [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" != "$CPA_DEFENDER_OAUTH_FINGERPRINT" ]] || { echo 'Proposer and Defender CPA OAuth account fingerprints must differ' >&2; exit 2; }
-          proposer_domain="$CPA_PROPOSER_GITSTORE_URL#$CPA_PROPOSER_GITSTORE_BRANCH"
-          defender_domain="$CPA_DEFENDER_GITSTORE_URL#$CPA_DEFENDER_GITSTORE_BRANCH"
-          journal_domain="$OPERATOR_STATE_GIT_URL#$OPERATOR_STATE_GIT_BRANCH"
+          for branch in "$CPA_PROPOSER_GITSTORE_BRANCH" "$CPA_DEFENDER_GITSTORE_BRANCH" "$OPERATOR_STATE_GIT_BRANCH"; do
+            [[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$branch" != *..* && "$branch" != */ && "$branch" != *//* ]] || { echo 'Git branch names must be safe' >&2; exit 2; }
+          done
+          proposer_repo="${CPA_PROPOSER_GITSTORE_URL,,}"
+          proposer_repo="${proposer_repo%/}"
+          proposer_repo="${proposer_repo%.git}"
+          defender_repo="${CPA_DEFENDER_GITSTORE_URL,,}"
+          defender_repo="${defender_repo%/}"
+          defender_repo="${defender_repo%.git}"
+          [[ "$proposer_repo" != "$defender_repo" ]] || { echo 'Proposer and Defender CPA GitStores must use different repositories' >&2; exit 2; }
+          [[ "$CPA_DEFENDER_GITSTORE_BRANCH" != "$OPERATOR_STATE_GIT_BRANCH" ]] || { echo 'Defender CPA and journal branches must differ' >&2; exit 2; }
+          proposer_domain="$proposer_repo#$CPA_PROPOSER_GITSTORE_BRANCH"
+          defender_domain="$defender_repo#$CPA_DEFENDER_GITSTORE_BRANCH"
+          journal_domain="$defender_repo#$OPERATOR_STATE_GIT_BRANCH"
           [[ "$proposer_domain" != "$defender_domain" && "$proposer_domain" != "$journal_domain" && "$defender_domain" != "$journal_domain" ]] || { echo 'Proposer CPA, Defender CPA, and Defender journal write domains must be pairwise distinct' >&2; exit 2; }
-          for url in "$CPA_PROPOSER_GITSTORE_URL" "$CPA_DEFENDER_GITSTORE_URL" "$OPERATOR_STATE_GIT_URL"; do
+          for url in "$CPA_PROPOSER_GITSTORE_URL" "$CPA_DEFENDER_GITSTORE_URL"; do
             case "$url" in
               http://*@*|https://*@*) echo 'Git URLs must not contain credentials' >&2; exit 2 ;;
             esac
@@ -120,8 +104,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:b9598fed1631fdf51202519c6c05a1f05f570abe770db3ab547f58f253f9f36d'
-          expected_revision='1993eff03c3c03ebcdb72dca3fb8ec54ff267d23'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07'
+          expected_revision='87bddadbc97eaa8dd006b8a048022db537c936c7'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
@@ -140,20 +124,23 @@ jobs:
           GITSTORE_GIT_BRANCH: ${{ vars.CPA_DEFENDER_GITSTORE_BRANCH }}
           GITSTORE_GIT_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
           GITSTORE_GIT_USERNAME: ${{ vars.CPA_GITSTORE_GIT_USERNAME }}
+          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
           MANAGEMENT_PASSWORD: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           repo_slug="${GITSTORE_GIT_URL#https://github.com/}"
           repo_slug="${repo_slug%.git}"
-          api_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-            -H "Authorization: Bearer $GITSTORE_GIT_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "https://api.github.com/repos/$repo_slug/branches/$GITSTORE_GIT_BRANCH" || true)"
-          if [[ "$api_status" != 200 ]]; then
-            echo "Defender GitStore token branch check returned GitHub API HTTP $api_status" >&2
-            exit 2
-          fi
+          for branch in "$GITSTORE_GIT_BRANCH" "$OPERATOR_STATE_GIT_BRANCH"; do
+            api_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $GITSTORE_GIT_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$repo_slug/branches/$branch" || true)"
+            if [[ "$api_status" != 200 ]]; then
+              echo "Defender GitStore token branch check returned GitHub API HTTP $api_status" >&2
+              exit 2
+            fi
+          done
           askpass="$(mktemp)"
           trap 'rm -f "$askpass"' EXIT
           cat > "$askpass" <<'EOF'
@@ -165,10 +152,12 @@ jobs:
           esac
           EOF
           chmod 700 "$askpass"
-          if ! GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$GITSTORE_GIT_URL" "refs/heads/$GITSTORE_GIT_BRANCH" >/dev/null 2>&1; then
-            echo 'Defender GitStore token cannot read the configured repository branch' >&2
-            exit 2
-          fi
+          for branch in "$GITSTORE_GIT_BRANCH" "$OPERATOR_STATE_GIT_BRANCH"; do
+            if ! GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$GITSTORE_GIT_URL" "refs/heads/$branch" >/dev/null 2>&1; then
+              echo 'Defender GitStore token cannot read a configured repository branch' >&2
+              exit 2
+            fi
+          done
           rm -f "$askpass"
           trap - EXIT
           mkdir -m 700 -p cliproxy-gitstore
@@ -221,16 +210,11 @@ jobs:
           DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO || vars.DEFENDER_EMAIL_TO }}
           DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
           INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
-          ONCE_INPUT: ${{ inputs.once }}
-          RUN_HOURS_INPUT: ${{ inputs.run_hours }}
-          POLL_SECONDS_INPUT: ${{ inputs.poll_seconds }}
-          PROPOSAL_FROM_BLOCK_INPUT: ${{ inputs.proposal_from_block }}
-          PROPOSAL_ID: ${{ inputs.proposal_id }}
           DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
           DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
-          OPERATOR_STATE_GIT_URL: ${{ vars.OPERATOR_STATE_GIT_URL }}
+          OPERATOR_STATE_GIT_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
           OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
-          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.OPERATOR_STATE_GIT_TOKEN }}
+          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p defender-data
@@ -253,11 +237,6 @@ jobs:
             -e DEFENDER_EMAIL_TO \
             -e DEFENDER_EMAIL_FROM \
             -e INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS \
-            -e ONCE_INPUT \
-            -e RUN_HOURS_INPUT \
-            -e POLL_SECONDS_INPUT \
-            -e PROPOSAL_FROM_BLOCK_INPUT \
-            -e PROPOSAL_ID \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS \
             -e DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS \
             -e GITHUB_SERVER_URL \
