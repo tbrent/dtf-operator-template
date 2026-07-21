@@ -12,8 +12,8 @@ setup_proposer="$root/scripts/setup-github-proposer"
 setup_defender="$root/scripts/setup-github-defender"
 legacy_cache="$root/scripts/codex-auth-cache"
 
-expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07'
-expected_revision='87bddadbc97eaa8dd006b8a048022db537c936c7'
+expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:154b3e62e5ff99fe33961cbba64c7aa83bee129fafe81fe500d6cbb0594db61c'
+expected_revision='4f7cff1648552c679ee5b22bb5a35fbcb26cc5f1'
 
 fail() {
   echo "authoritative template validation failed: $*" >&2
@@ -102,6 +102,7 @@ if [[ "$(grep -Fc 'node dist/cli/run-github-defender.js' "$defender")" != 1 ]]; 
 fi
 reject_pattern '(^|[[:space:]])matrix:' 'Defender must not use a per-Folio matrix' "$defender"
 reject_pattern 'inputs\.(once|run_hours|poll_seconds|proposal_from_block|proposal_id)|ONCE_INPUT|RUN_HOURS_INPUT|POLL_SECONDS_INPUT|PROPOSAL_FROM_BLOCK_INPUT|PROPOSAL_ID' 'Defender workflow must expose only supported one-shot coordinator controls for the pinned runtime' "$defender"
+reject_pattern 'resume_existing_rebalance|RESUME_EXISTING_REBALANCE_INPUT' 'retired Proposer resume control must be absent' "$proposer"
 
 reject_pattern 'actions/cache|codex-auth-cache|cliproxy-auth-cache|CLIPROXY_AUTH_TGZ_B64|dtf-codex-auth' 'legacy Actions cache OAuth or state persistence remains' "$proposer" "$defender"
 reject_pattern 'shared-login|sequential-smoke|smoke-only|live-test|test/gitstore|tbrent|controlled-veto-test|operator-src|docker build' 'disposable branch or per-run build behavior remains' "$proposer" "$defender" "$config"

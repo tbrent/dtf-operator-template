@@ -34,11 +34,6 @@ on:
         required: false
         default: false
         type: boolean
-      resume_existing_rebalance:
-        description: Explicitly continue or reopen an already executed rebalance
-        required: false
-        default: false
-        type: boolean
       allow_public_rpc:
         description: Allow known public fallback RPCs for observe-only operation
         required: false
@@ -60,8 +55,8 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07
-  DTF_OPERATOR_SOURCE_REVISION: 87bddadbc97eaa8dd006b8a048022db537c936c7
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:154b3e62e5ff99fe33961cbba64c7aa83bee129fafe81fe500d6cbb0594db61c
+  DTF_OPERATOR_SOURCE_REVISION: 4f7cff1648552c679ee5b22bb5a35fbcb26cc5f1
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
@@ -139,8 +134,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07'
-          expected_revision='87bddadbc97eaa8dd006b8a048022db537c936c7'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:154b3e62e5ff99fe33961cbba64c7aa83bee129fafe81fe500d6cbb0594db61c'
+          expected_revision='4f7cff1648552c679ee5b22bb5a35fbcb26cc5f1'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
@@ -252,7 +247,6 @@ jobs:
           MIN_OPEN_AUCTION_VALUE_USD_INPUT: ${{ inputs.min_open_auction_value_usd }}
           COWBOT_MIN_VALUE_USD_INPUT: ${{ inputs.cowbot_min_value_usd }}
           ALLOW_PUBLIC_RPC_INPUT: ${{ inputs.allow_public_rpc || false }}
-          RESUME_EXISTING_REBALANCE_INPUT: ${{ inputs.resume_existing_rebalance || false }}
           RPC_URL_OVERRIDE_INPUT: ${{ inputs.rpc_url_override }}
           BYPASS_PROPOSER_DEFENDER_CHECK_INPUT: ${{ inputs.confirm_bypass_proposer_defender_check == 'BYPASS_PROPOSER_DEFENDER_CHECK' }}
           CONFIRM_BYPASS_PROPOSER_DEFENDER_CHECK_INPUT: ${{ inputs.confirm_bypass_proposer_defender_check }}
@@ -290,7 +284,6 @@ jobs:
             -e MIN_OPEN_AUCTION_VALUE_USD_INPUT \
             -e COWBOT_MIN_VALUE_USD_INPUT \
             -e ALLOW_PUBLIC_RPC_INPUT \
-            -e RESUME_EXISTING_REBALANCE_INPUT \
             -e RPC_URL_OVERRIDE_INPUT \
             -e BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
             -e CONFIRM_BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
