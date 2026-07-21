@@ -33,11 +33,11 @@ expect_rejected() {
 TEMPLATE_ROOT="$root" "$validator" >/dev/null
 
 fixture="$(new_fixture)"
-sed -i 's/b9598fed/c9598fed/' "$fixture/.github/workflows/dtf-proposer.yml"
+sed -i 's/26e60f9b/36e60f9b/' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected operator_digest "$fixture"
 
 fixture="$(new_fixture)"
-sed -i 's/1993eff0/2993eff0/' "$fixture/.github/workflows/dtf-defender.yml"
+sed -i 's/87bddadb/97bddadb/' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected source_revision "$fixture"
 
 fixture="$(new_fixture)"
@@ -69,6 +69,18 @@ sed -i '/Proposer and Defender CPA OAuth account fingerprints must differ/d' "$f
 expect_rejected oauth_fingerprint "$fixture"
 
 fixture="$(new_fixture)"
+sed -i '/Proposer and Defender CPA GitStores must use different repositories/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected repository_isolation "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/Defender CPA and journal branches must differ/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected defender_branch_isolation "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/Git branch names must be safe/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected branch_name_validation "$fixture"
+
+fixture="$(new_fixture)"
 sed -i 's#/v0/management/auth-files#/v1/models#g' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected gitstore_readiness_endpoint "$fixture"
 
@@ -83,6 +95,30 @@ expect_rejected gitstore_branch_access "$fixture"
 fixture="$(new_fixture)"
 sed -i 's/OPERATOR_STATE_MODE=git-authoritative/OPERATOR_STATE_MODE=local/' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected git_authority "$fixture"
+
+fixture="$(new_fixture)"
+printf '\n# ONCE_INPUT\n' >> "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected unsupported_continuous_defender "$fixture"
+
+fixture="$(new_fixture)"
+printf '\n# PROPOSAL_ID\n' >> "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected unsupported_targeted_defender "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/OPERATOR_STATE_GIT_TOKEN: \${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}/OPERATOR_STATE_GIT_TOKEN: \${{ secrets.OPERATOR_STATE_GIT_TOKEN }}/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected defender_token_reuse "$fixture"
+
+fixture="$(new_fixture)"
+printf '\n# vars.OPERATOR_STATE_GIT_URL\n' >> "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected redundant_journal_configuration "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/"${common_args\[@\]}" initialize/"${common_args[@]}" seed/' "$fixture/scripts/initialize-defender-journal"
+expect_rejected legacy_journal_command "$fixture"
+
+fixture="$(new_fixture)"
+printf '\n  requireAiApproval: true\n' >> "$fixture/.github/dtf-operator.yml"
+expect_rejected noop_ai_approval "$fixture"
 
 fixture="$(new_fixture)"
 printf '\n# SIGNED_TRANSACTION: forbidden\n' >> "$fixture/.github/workflows/dtf-defender.yml"

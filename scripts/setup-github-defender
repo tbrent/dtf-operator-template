@@ -8,7 +8,8 @@ Usage: RESEND_API_KEY=<key> scripts/setup-github-defender --email <address> [opt
 Uploads a dedicated Defender gateway key, email settings, signer secrets,
 account name, and signer-address variable to a private operator fork. CPA OAuth
 is initialized separately with scripts/seed-cliproxy-gitstore using a different
-login from Proposer.
+login and private repository from Proposer; that Defender repository later also
+holds the credential-free journal on a separate branch.
 
 Required:
   --email <address>
@@ -195,4 +196,4 @@ unset inference_api_key
 echo "configured=defender-gateway,email,defender-signer"
 echo "foundry_account=$foundry_account"
 echo "signer_address=$defender_address"
-echo "next_step=seed the dedicated Defender CPA GitStore with a Defender-only OAuth login, then initialize the distinct Defender journal branch"
+echo "next_step=seed the Defender repository with a Defender-only OAuth login, then initialize its distinct journal branch"

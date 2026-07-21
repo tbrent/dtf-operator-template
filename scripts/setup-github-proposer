@@ -185,4 +185,4 @@ unset inference_api_key
 echo "configured=proposer-gateway,proposer-signer"
 echo "foundry_account=$foundry_account"
 echo "signer_address=$address"
-echo "next_step=seed the dedicated Proposer CPA GitStore with a Proposer-only OAuth login, then configure the Folio and signer authorities"
+echo "next_step=seed the Proposer CPA repository, then seed Defender with a different OAuth login in a different private repository"

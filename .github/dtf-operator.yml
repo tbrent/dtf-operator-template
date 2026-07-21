@@ -89,10 +89,6 @@ defender:
     # May also be supplied through DEFENDER_EMAIL_TO GitHub Secret.
     emailTo:
 
-  # AI is the sole authority for deciding mandate compliance and whether a
-  # proposal should be approved or vetoed. Deterministic processing supports
-  # the review but does not make mandate-compliance decisions.
-  requireAiApproval: true
   # The production workflow requires a dedicated Defender signer and fails its
   # isolation preflight when signer secrets are missing.
   alertOnlyWithoutSigner: false

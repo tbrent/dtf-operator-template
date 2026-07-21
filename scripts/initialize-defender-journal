@@ -3,30 +3,22 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: OPERATOR_STATE_GIT_TOKEN=<scoped-write-token> \
-  scripts/initialize-defender-journal --git-url <private-repo-url> \
-  --git-branch <branch> [--repo <owner/repo>]
+Usage: CPA_DEFENDER_GITSTORE_TOKEN=<scoped-write-token> \
+  scripts/initialize-defender-journal --git-branch <branch> \
+  [--repo <owner/repo>]
 
-Creates a fresh, empty authoritative Defender journal in an absent private Git
-branch, verifies a clean restore, and configures the matching GitHub Secret and
-Variables. It does not import prior runtime files and refuses an existing
-branch. The helper never deletes or force-pushes a private persistence branch.
+Creates a fresh, empty authoritative Defender journal in an absent branch of
+the private repository already configured by CPA_DEFENDER_GITSTORE_URL, verifies
+a clean restore, and configures OPERATOR_STATE_GIT_BRANCH. It reuses the scoped
+CPA_DEFENDER_GITSTORE_TOKEN without printing it or creating a duplicate Secret.
+It does not import prior runtime files and refuses an existing branch. The
+helper never deletes or force-pushes a private persistence branch.
 EOF
 }
 
 die() {
   echo "error: $*" >&2
   exit 2
-}
-
-set_secret() {
-  local name="$1"
-  local value="$2"
-  if [[ -n "$repo" ]]; then
-    printf '%s' "$value" | gh secret set "$name" --repo "$repo"
-  else
-    printf '%s' "$value" | gh secret set "$name"
-  fi
 }
 
 set_variable() {
@@ -48,15 +40,13 @@ get_variable() {
   fi
 }
 
-git_url=""
 git_branch=""
 repo=""
-operator_image="ghcr.io/reserve-protocol/dtf-operator@sha256:b9598fed1631fdf51202519c6c05a1f05f570abe770db3ab547f58f253f9f36d"
-operator_revision="1993eff03c3c03ebcdb72dca3fb8ec54ff267d23"
+operator_image="ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07"
+operator_revision="87bddadbc97eaa8dd006b8a048022db537c936c7"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --git-url) git_url="${2:-}"; shift 2 ;;
     --git-branch) git_branch="${2:-}"; shift 2 ;;
     --repo) repo="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -64,22 +54,30 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$git_url" && -n "$git_branch" ]] || die "--git-url and --git-branch are required"
+[[ -n "$git_branch" ]] || die "--git-branch is required"
 [[ "$git_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$git_branch" != *..* && "$git_branch" != */ && "$git_branch" != *//* ]] || die "--git-branch is not a safe branch name"
-case "$git_url" in
-  http://*@*|https://*@*) die "--git-url must not contain credentials" ;;
-esac
-[[ -n "${OPERATOR_STATE_GIT_TOKEN:-}" ]] || die "OPERATOR_STATE_GIT_TOKEN is required"
+[[ -n "${CPA_DEFENDER_GITSTORE_TOKEN:-}" ]] || die "CPA_DEFENDER_GITSTORE_TOKEN is required"
 command -v docker >/dev/null 2>&1 || die "docker is required"
 command -v gh >/dev/null 2>&1 || die "gh is required"
 
-for prefix in CPA_PROPOSER CPA_DEFENDER; do
-  other_url="$(get_variable "${prefix}_GITSTORE_URL")"
-  other_branch="$(get_variable "${prefix}_GITSTORE_BRANCH")"
-  if [[ -n "$other_url" && -n "$other_branch" && "$git_url#$git_branch" == "$other_url#$other_branch" ]]; then
-    die "Defender journal and CPA GitStore write domains must differ"
-  fi
-done
+git_url="$(get_variable CPA_DEFENDER_GITSTORE_URL)"
+cpa_branch="$(get_variable CPA_DEFENDER_GITSTORE_BRANCH)"
+[[ -n "$git_url" ]] || die "CPA_DEFENDER_GITSTORE_URL must be configured before journal initialization"
+[[ -n "$cpa_branch" ]] || die "CPA_DEFENDER_GITSTORE_BRANCH must be configured before journal initialization"
+case "$git_url" in
+  http://*@*|https://*@*) die "CPA_DEFENDER_GITSTORE_URL must not contain credentials" ;;
+esac
+[[ "$git_branch" != "$cpa_branch" ]] || die "Defender CPA and journal branches must differ"
+proposer_url="$(get_variable CPA_PROPOSER_GITSTORE_URL)"
+normalized_defender_url="${git_url,,}"
+normalized_defender_url="${normalized_defender_url%/}"
+normalized_defender_url="${normalized_defender_url%.git}"
+normalized_proposer_url="${proposer_url,,}"
+normalized_proposer_url="${normalized_proposer_url%/}"
+normalized_proposer_url="${normalized_proposer_url%.git}"
+if [[ -n "$normalized_proposer_url" && "$normalized_defender_url" == "$normalized_proposer_url" ]]; then
+  die "Proposer and Defender CPA GitStores must use different repositories"
+fi
 
 docker pull --platform linux/amd64 "$operator_image"
 platform="$(docker image inspect "$operator_image" --format '{{.Os}}/{{.Architecture}}')"
@@ -100,7 +98,7 @@ cleanup() {
     rm -rf "$dir" >/dev/null 2>&1 || true
   done
   if [[ "$status" != 0 && "$initialized" == 1 ]]; then
-    echo "error: journal initialization did not complete; the private branch may contain a non-authoritative initial generation and was intentionally left intact" >&2
+    echo "error: journal initialization did not complete; the private branch may contain an initial generation that was not restore-verified and was intentionally left intact" >&2
   fi
   exit "$status"
 }
@@ -119,25 +117,29 @@ common_args=(
   node dist/cli/run-defender-state.js
 )
 
-docker run "${common_args[@]}" seed
+OPERATOR_STATE_GIT_TOKEN="$CPA_DEFENDER_GITSTORE_TOKEN" docker run "${common_args[@]}" initialize
 initialized=1
-docker run "${common_args[@]}" cutover
 
-docker run --rm \
-  --platform linux/amd64 \
-  -e OPERATOR_STATE_GIT_URL="$git_url" \
-  -e OPERATOR_STATE_GIT_BRANCH="$git_branch" \
-  -e OPERATOR_STATE_GIT_TOKEN \
-  -e OPERATOR_STATE_ROOT=/data \
-  -v "$verify_dir:/data" \
-  "$operator_image" \
-  node dist/cli/run-defender-state.js restore
+verify_args=(
+  --rm
+  --platform linux/amd64
+  -e OPERATOR_STATE_GIT_URL="$git_url"
+  -e OPERATOR_STATE_GIT_BRANCH="$git_branch"
+  -e OPERATOR_STATE_GIT_TOKEN
+  -e OPERATOR_STATE_MODE=git-authoritative
+  -e OPERATOR_STATE_ROOT=/data
+  -v "$verify_dir:/data"
+  "$operator_image"
+  node dist/cli/run-defender-state.js
+)
 
-set_secret OPERATOR_STATE_GIT_TOKEN "$OPERATOR_STATE_GIT_TOKEN"
-set_variable OPERATOR_STATE_GIT_URL "$git_url"
+OPERATOR_STATE_GIT_TOKEN="$CPA_DEFENDER_GITSTORE_TOKEN" docker run "${verify_args[@]}" restore
+OPERATOR_STATE_GIT_TOKEN="$CPA_DEFENDER_GITSTORE_TOKEN" docker run "${verify_args[@]}" validate
+
 set_variable OPERATOR_STATE_GIT_BRANCH "$git_branch"
 
+echo "defender_repository_reused=1"
 echo "defender_journal_initialized=1"
 echo "defender_journal_restore_verified=1"
 echo "operator_source_revision=$operator_revision"
-echo "next_step=protect the journal branch against force-pushes and deletion before production dispatch"
+echo "next_step=protect both Defender branches against force-pushes and deletion before production dispatch"
