@@ -64,6 +64,13 @@ defender:
   # the top-level Folio. Keep one entry per Defender target and set fromBlock to
   # a block before that Folio's first relevant governance proposal. One workflow
   # invocation coordinates all entries serially; do not create a job matrix.
+  folios:
+    - folioAddress: "0xd45e4170834a803D084b2bB145c9ad08f3BdD651"
+      chainId: 8453
+      governorAddress: "0xf5b5471b35c70BDc984b295044De1d7e30ed1cAB"
+      proposalScan:
+        fromBlock: 48750000
+
   # Single-Folio fallback. This is used only when defender.folios is omitted or
   # empty. The runtime automatically shrinks rejected or timed-out
   # eth_getLogs ranges and checkpoints each successful chunk. Leave chunking

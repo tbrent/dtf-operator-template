@@ -21,8 +21,8 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07
-  DTF_OPERATOR_SOURCE_REVISION: 87bddadbc97eaa8dd006b8a048022db537c936c7
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:154b3e62e5ff99fe33961cbba64c7aa83bee129fafe81fe500d6cbb0594db61c
+  DTF_OPERATOR_SOURCE_REVISION: 4f7cff1648552c679ee5b22bb5a35fbcb26cc5f1
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
@@ -104,8 +104,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:26e60f9ba0e4f4c968e7be3d705bbf93e5a03dd903f181856967bccd1b5afa07'
-          expected_revision='87bddadbc97eaa8dd006b8a048022db537c936c7'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:154b3e62e5ff99fe33961cbba64c7aa83bee129fafe81fe500d6cbb0594db61c'
+          expected_revision='4f7cff1648552c679ee5b22bb5a35fbcb26cc5f1'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
