@@ -3,12 +3,14 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: RESEND_API_KEY=<key> scripts/setup-github-defender --email <address> [options]
+Usage: RESEND_API_KEY=<key> DEFENDER_INFERENCE_API_KEY=<provider-key> \
+  scripts/setup-github-defender --email <address> \
+  --inference-base-url <https://host/v1> [options]
 
-Uploads a dedicated Defender gateway key, email settings, signer secrets,
-account name, and signer-address variable to a private operator fork. CPA OAuth
-is initialized separately with scripts/seed-cliproxy-gitstore using a different
-login from Proposer.
+Uploads Defender inference, email, signer secrets, account name, and the signer
+address to a private operator fork. Direct OpenAI-compatible inference is the
+recommended path and needs no GitStore. Use --use-cliproxy-gitstore only for an
+existing CLIProxy OAuth deployment.
 
 Required:
   --email <address>
@@ -17,6 +19,8 @@ Required:
 
 Options:
   --from-email <address>           Optional sender; defaults in runtime when unset
+  --inference-base-url <url>       Direct HTTPS OpenAI-compatible /v1 base URL
+  --use-cliproxy-gitstore          Retain the optional local CLIProxy GitStore mode
   --init-keystore-password         Create password file if missing
   --force-keystore-password        Replace generated password file before creating a new keystore
   --import-private-key-env <name>  Import 0x private key from env when generating
@@ -24,8 +28,8 @@ Options:
   --repo <owner/repo>              Target GitHub repository
   -h, --help                       Show this help
 
-Set DEFENDER_INFERENCE_API_KEY in the environment to preserve an existing
-gateway key. When unset, the helper generates a new key without printing it.
+Direct mode requires DEFENDER_INFERENCE_API_KEY in the environment. CLIProxy
+mode preserves an existing value or generates a gateway key without printing it.
 EOF
 }
 
@@ -92,6 +96,8 @@ get_variable() {
 
 email=""
 from_email="${DEFENDER_EMAIL_FROM:-}"
+inference_base_url=""
+use_cliproxy_gitstore=0
 keystore=""
 keystore_password_file=""
 init_keystore_password=0
@@ -105,6 +111,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --email) email="${2:-}"; shift 2 ;;
     --from-email) from_email="${2:-}"; shift 2 ;;
+    --inference-base-url) inference_base_url="${2:-}"; shift 2 ;;
+    --use-cliproxy-gitstore) use_cliproxy_gitstore=1; shift ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
     --init-keystore-password) init_keystore_password=1; shift ;;
@@ -123,12 +131,22 @@ done
 [[ -n "$keystore_password_file" ]] || die "--keystore-password-file is required"
 [[ -n "$keystore" || -n "$generate_keystore_dir" ]] || die "--keystore or --generate-keystore-dir is required"
 [[ -z "$keystore" || -z "$generate_keystore_dir" ]] || die "choose either --keystore or --generate-keystore-dir, not both"
+[[ -n "$inference_base_url" || "$use_cliproxy_gitstore" == 1 ]] || die "--inference-base-url or --use-cliproxy-gitstore is required"
+[[ -z "$inference_base_url" || "$use_cliproxy_gitstore" != 1 ]] || die "choose direct inference or --use-cliproxy-gitstore, not both"
 [[ -z "$import_private_key_env" || -n "$generate_keystore_dir" ]] || die "--import-private-key-env requires --generate-keystore-dir"
 [[ "$foundry_account" =~ ^[A-Za-z0-9._-]+$ ]] || die "--foundry-account must match [A-Za-z0-9._-]+"
 [[ "$foundry_account" != -* && "$foundry_account" != *..* && "$foundry_account" != */* ]] || die "--foundry-account must not contain path traversal"
 
 require_command cast
 require_command gh
+
+if [[ -n "$inference_base_url" ]]; then
+  [[ "$inference_base_url" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || die "--inference-base-url must be a single-line https URL"
+  case "$inference_base_url" in
+    https://*@*) die "--inference-base-url must not contain credentials" ;;
+  esac
+  [[ -n "${DEFENDER_INFERENCE_API_KEY:-}" ]] || die "DEFENDER_INFERENCE_API_KEY is required for direct inference"
+fi
 
 if [[ -n "$generate_keystore_dir" && "$force_keystore_password" == 1 && -e "${generate_keystore_dir%/}/$foundry_account" ]]; then
   die "refusing to replace the password for an existing generated keystore; create a new keystore path instead"
@@ -177,10 +195,20 @@ other_signer="$(get_variable PROPOSER_SIGNER_ADDRESS)"
 if [[ -n "$other_signer" && "${defender_address,,}" == "${other_signer,,}" ]]; then
   die "Proposer and Defender signer addresses must differ"
 fi
-inference_api_key="${DEFENDER_INFERENCE_API_KEY:-$(random_password)}"
+if [[ -n "$inference_base_url" ]]; then
+  inference_mode=direct
+  inference_api_key="$DEFENDER_INFERENCE_API_KEY"
+else
+  inference_mode=cliproxy
+  inference_api_key="${DEFENDER_INFERENCE_API_KEY:-$(random_password)}"
+fi
 
 echo "Setting dedicated Defender GitHub configuration${repo:+ for $repo}"
 set_secret DEFENDER_INFERENCE_API_KEY "$inference_api_key"
+set_variable DEFENDER_INFERENCE_MODE "$inference_mode"
+if [[ "$inference_mode" == direct ]]; then
+  set_variable DEFENDER_INFERENCE_BASE_URL "${inference_base_url%/}"
+fi
 set_secret RESEND_API_KEY "$RESEND_API_KEY"
 set_secret DEFENDER_EMAIL_TO "$email"
 if [[ -n "$from_email" ]]; then
@@ -192,7 +220,11 @@ set_secret DEFENDER_FOUNDRY_ACCOUNT "$foundry_account"
 set_variable DEFENDER_SIGNER_ADDRESS "$defender_address"
 unset inference_api_key
 
-echo "configured=defender-gateway,email,defender-signer"
+echo "configured=defender-$inference_mode-inference,email,defender-signer"
 echo "foundry_account=$foundry_account"
 echo "signer_address=$defender_address"
-echo "next_step=seed the dedicated Defender CPA GitStore with a Defender-only OAuth login, then initialize the distinct Defender journal branch"
+if [[ "$inference_mode" == direct ]]; then
+  echo "next_step=run one manual Defender dispatch to initialize and save the Actions cache journal"
+else
+  echo "next_step=seed the optional Defender CPA GitStore, then run one manual Defender dispatch"
+fi
