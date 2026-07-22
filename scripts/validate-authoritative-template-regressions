@@ -44,6 +44,22 @@ sed -i '/github.ref_name == github.event.repository.default_branch/d' "$fixture/
 expect_rejected default_branch_gate "$fixture"
 
 fixture="$(new_fixture)"
+sed -i '/github.ref_name == github.event.repository.default_branch/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_default_branch_gate "$fixture"
+
+fixture="$(new_fixture)"
+sed -i "s/vars.DEFENDER_SCHEDULES_ENABLED == 'true'/vars.PROPOSER_SCHEDULES_ENABLED == 'true'/" "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected defender_schedule_gate "$fixture"
+
+fixture="$(new_fixture)"
+sed -i "s/vars.PROPOSER_SCHEDULES_ENABLED == 'true'/vars.DEFENDER_SCHEDULES_ENABLED == 'true'/" "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_schedule_gate "$fixture"
+
+fixture="$(new_fixture)"
+sed -i "s/vars.PROPOSER_SCHEDULE_MODE || 'dry-run'/vars.PROPOSER_SCHEDULE_MODE || 'live-one-cycle'/" "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_schedule_default "$fixture"
+
+fixture="$(new_fixture)"
 sed -i 's/actions\/cache\/restore@v6/actions\/cache@v6/' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected split_cache_restore "$fixture"
 
@@ -86,6 +102,10 @@ expect_rejected tailscale_pair "$fixture"
 fixture="$(new_fixture)"
 sed -i '/cache-matched-key ==/d' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected legacy_import_scope "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/if \[\[ -z "\$OPERATOR_STATE_GIT_BRANCH" \]\]/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected legacy_import_marker "$fixture"
 
 fixture="$(new_fixture)"
 sed -i '/if \[\[ "\$DEFENDER_INFERENCE_MODE" == cliproxy \]\]/d' "$fixture/.github/workflows/dtf-proposer.yml"

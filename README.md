@@ -180,8 +180,10 @@ CPA_DEFENDER_GITSTORE_TOKEN
 When all three are present, it performs a read-only `run-defender-state restore`
 into the mounted directory before starting cache-authoritative Defender. This
 preserves reviews, checkpoints, notifications, and signed-veto recovery state.
-Partial legacy configuration fails loudly. New operators configure none of the
-triplet and receive a fresh journal automatically.
+`OPERATOR_STATE_GIT_BRANCH` is the explicit migration marker. When it is
+absent, the workflow starts a fresh journal even if Defender uses the CPA URL
+and token for CLIProxy inference. When the marker is present, a missing legacy
+URL or token fails loudly.
 
 After a migrated run successfully saves its first cache generation,
 `OPERATOR_STATE_GIT_BRANCH` is no longer required. Keep the Defender CPA URL and
@@ -258,13 +260,27 @@ scripts/validate-authoritative-template-regressions
 
 Manual `workflow_dispatch` runs are available only from the private fork's
 default branch. Run Defender once and confirm the workflow reports a validated
-and saved cache generation. Only then enable schedules:
+and saved cache generation. Then enable its independent schedule:
 
 ```bash
-gh variable set DTF_SCHEDULES_ENABLED \
+gh variable set DEFENDER_SCHEDULES_ENABLED \
   --repo <owner/private-operator-fork> \
   --body true
 ```
+
+Proposer scheduling is independent and defaults to dry-run. To enable scheduled
+dry-runs, set only its schedule gate:
+
+```bash
+gh variable set PROPOSER_SCHEDULES_ENABLED \
+  --repo <owner/private-operator-fork> \
+  --body true
+```
+
+Scheduled transaction broadcasting requires a separate explicit decision. Run
+and review a manual `live-one-cycle` dispatch first, then set
+`PROPOSER_SCHEDULE_MODE=live-one-cycle`. Leaving the mode unset keeps scheduled
+Proposer runs in dry-run.
 
 ## GitHub configuration contract
 
@@ -274,7 +290,7 @@ Required Defender Variables:
 DEFENDER_INFERENCE_MODE             # direct recommended; cliproxy optional
 DEFENDER_INFERENCE_BASE_URL         # direct only
 DEFENDER_SIGNER_ADDRESS
-DTF_SCHEDULES_ENABLED               # true only after acceptance
+DEFENDER_SCHEDULES_ENABLED          # true only after Defender acceptance
 ```
 
 Required Proposer Variables:
@@ -283,6 +299,8 @@ Required Proposer Variables:
 PROPOSER_INFERENCE_MODE             # direct recommended; cliproxy optional
 PROPOSER_INFERENCE_BASE_URL         # direct only
 PROPOSER_SIGNER_ADDRESS
+PROPOSER_SCHEDULES_ENABLED          # optional; enables scheduled Proposer runs
+PROPOSER_SCHEDULE_MODE              # optional; defaults to dry-run
 ```
 
 Required Defender Secrets:

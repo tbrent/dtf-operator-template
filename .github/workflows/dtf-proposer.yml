@@ -61,7 +61,7 @@ env:
 
 jobs:
   proposer:
-    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && (github.event_name == 'workflow_dispatch' || vars.DTF_SCHEDULES_ENABLED == 'true') }}
+    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || vars.PROPOSER_SCHEDULES_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     concurrency:
       group: dtf-proposer-${{ github.repository_id }}
@@ -305,7 +305,7 @@ jobs:
           AUCTION_LAUNCHER_KEYSTORE_PASSWORD: ${{ secrets.AUCTION_LAUNCHER_KEYSTORE_PASSWORD }}
           AUCTION_LAUNCHER_FOUNDRY_ACCOUNT: ${{ secrets.AUCTION_LAUNCHER_FOUNDRY_ACCOUNT }}
           MIN_SIGNER_BALANCE_WEI: ${{ vars.MIN_SIGNER_BALANCE_WEI || '1' }}
-          MODE_INPUT: ${{ inputs.mode || '' }}
+          MODE_INPUT: ${{ github.event_name == 'schedule' && (vars.PROPOSER_SCHEDULE_MODE || 'dry-run') || inputs.mode }}
           CONFIRM_LIVE_BROADCAST_INPUT: ${{ inputs.confirm_live_broadcast || false }}
           RUN_HOURS_INPUT: ${{ inputs.run_hours }}
           MIN_OPEN_AUCTION_VALUE_USD_INPUT: ${{ inputs.min_open_auction_value_usd }}

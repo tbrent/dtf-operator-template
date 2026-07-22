@@ -27,7 +27,7 @@ env:
 
 jobs:
   defender:
-    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || vars.DTF_SCHEDULES_ENABLED == 'true') }}
+    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || vars.DEFENDER_SCHEDULES_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     concurrency:
       group: dtf-defender-${{ github.repository_id }}
@@ -176,15 +176,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p defender-data
-          configured=0
-          for value in "$OPERATOR_STATE_GIT_URL" "$OPERATOR_STATE_GIT_BRANCH" "$OPERATOR_STATE_GIT_TOKEN"; do
-            [[ -z "$value" ]] || configured=$((configured + 1))
-          done
-          if [[ "$configured" == 0 ]]; then
+          if [[ -z "$OPERATOR_STATE_GIT_BRANCH" ]]; then
             echo 'legacy_journal_import=fresh-cache'
             exit 0
           fi
-          [[ "$configured" == 3 ]] || { echo 'Legacy journal import requires CPA_DEFENDER_GITSTORE_URL, OPERATOR_STATE_GIT_BRANCH, and CPA_DEFENDER_GITSTORE_TOKEN together' >&2; exit 2; }
+          [[ -n "$OPERATOR_STATE_GIT_URL" && -n "$OPERATOR_STATE_GIT_TOKEN" ]] || { echo 'Legacy journal import requires CPA_DEFENDER_GITSTORE_URL and CPA_DEFENDER_GITSTORE_TOKEN when OPERATOR_STATE_GIT_BRANCH is configured' >&2; exit 2; }
           docker run --rm \
             --platform linux/amd64 \
             -e OPERATOR_STATE_MODE=git-authoritative \
