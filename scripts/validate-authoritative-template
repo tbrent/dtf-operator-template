@@ -11,8 +11,8 @@ setup_proposer="$root/scripts/setup-github-proposer"
 setup_defender="$root/scripts/setup-github-defender"
 removed_initializer="$root/scripts/initialize-defender-journal"
 
-expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6de9e6518b4c7c92279a8240d7cfaec334d460ce4beb2d521512ab8f57018331'
-expected_revision='90183ea7a6fe8eabbe2e8c6414f272bc0bb3adbc'
+expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5'
+expected_revision='fa307417a62fb6efd86d7b4cb2364e599dca2737'
 
 fail() {
   echo "authoritative template validation failed: $*" >&2
@@ -53,12 +53,12 @@ for workflow in "$proposer" "$defender"; do
   require_contains "$workflow" "expected_revision='$expected_revision'" "workflow does not assert its exact revision"
   require_contains "$workflow" 'docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"' "operator pull must select linux/amd64 in $workflow"
   require_contains "$workflow" 'org.opencontainers.image.revision' "operator OCI revision is not asserted in $workflow"
-  require_contains "$workflow" "vars.DTF_SCHEDULES_ENABLED == 'true'" "scheduled runs are not repository-variable gated in $workflow"
   require_contains "$workflow" 'persist-credentials: false' "configuration checkout must not persist the GitHub token in $workflow"
   require_contains "$workflow" 'Proposer and Defender signers must differ' "signer isolation is not asserted in $workflow"
 done
 
 require_contains "$defender" "github.ref_name == github.event.repository.default_branch" 'Defender must run only on the default branch'
+require_contains "$defender" "vars.DEFENDER_SCHEDULES_ENABLED == 'true'" 'Defender schedule is not independently gated'
 require_contains "$defender" 'group: dtf-defender-${{ github.repository_id }}' 'missing dedicated Defender concurrency group'
 require_contains "$defender" 'cancel-in-progress: false' 'Defender concurrency must remain serial without cancellation'
 require_contains "$defender" 'actions/cache/restore@v6' 'Defender must use the split cache restore action'
@@ -78,6 +78,7 @@ cleanup_line="$(line_number "$defender" 'Stop optional sidecar and remove local 
 [[ -n "$save_line" && -n "$cleanup_line" && "$save_line" -lt "$cleanup_line" ]] || fail 'Defender cache save must occur before cleanup'
 
 require_contains "$defender" 'DEFENDER_INFERENCE_MODE' 'Defender inference mode variable is missing'
+require_contains "$defender" 'DEFENDER_INFERENCE_PROVIDER' 'Defender inference provider variable is missing'
 require_contains "$defender" 'PROPOSER_INFERENCE_MODE' 'Defender isolation must understand Proposer direct mode'
 require_contains "$defender" 'DEFENDER_INFERENCE_MODE DEFENDER_INFERENCE_API_KEY PROPOSER_INFERENCE_MODE \' 'Defender direct mode still has GitStore fields in its common required contract'
 require_contains "$defender" 'DEFENDER_INFERENCE_BASE_URL' 'Defender direct base URL variable is missing'
@@ -85,26 +86,36 @@ require_contains "$defender" 'DEFENDER_INFERENCE_MODE must be direct or cliproxy
 require_contains "$defender" 'DEFENDER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' 'Direct inference does not require a safe HTTPS URL'
 require_contains "$defender" '*) base_url="$base_url/v1" ;;' 'Defender direct inference does not normalize a service origin to /v1'
 require_contains "$defender" 'Authorization: Bearer $INFERENCE_API_KEY' 'Direct inference endpoint is not probed with Bearer authentication'
+require_contains "$defender" 'x-api-key: $INFERENCE_API_KEY' 'Anthropic direct inference is not probed with x-api-key authentication'
+require_contains "$defender" 'anthropic-version: 2023-06-01' 'Anthropic direct inference version header is missing'
+require_contains "$defender" '-e INFERENCE_PROVIDER' 'Defender runtime does not receive its inference provider'
 require_contains "$defender" "steps.inference.outputs.mode == 'cliproxy'" 'CLIProxy sidecar is not conditional'
 require_contains "$defender" "steps.inference.outputs.mode == 'direct'" 'Direct endpoint path is not conditional'
 require_contains "$defender" 'tailscale/github-action@v4' 'optional Tailscale connectivity is missing'
 require_contains "$defender" 'TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET must be configured together' 'Tailscale Secrets are not pair-validated'
-require_contains "$defender" 'TAILSCALE_TAGS' 'Tailscale workflow tag is not configurable'
+require_contains "$defender" "vars.TAILSCALE_TAGS || 'tag:github-actions'" 'Tailscale workflow tag default is missing'
 require_contains "$defender" 'network_args=(--network host)' 'Direct Tailscale endpoint is not exposed to the Defender container'
 require_contains "$defender" 'if [[ "$PROPOSER_INFERENCE_MODE" == cliproxy ]]' 'Defender still unconditionally requires Proposer CPA configuration'
 
 require_contains "$defender" 'Import legacy Git journal on first cache generation' 'one-time legacy journal import is missing'
 require_contains "$defender" "steps.defender_state_restore.outputs.cache-matched-key == ''" 'legacy import must run only on a cache miss'
 require_contains "$defender" 'node dist/cli/run-defender-state.js restore' 'legacy import must use the normalized state restore CLI'
-require_contains "$defender" 'Legacy journal import requires CPA_DEFENDER_GITSTORE_URL, OPERATOR_STATE_GIT_BRANCH, and CPA_DEFENDER_GITSTORE_TOKEN together' 'partial legacy migration configuration is not rejected'
+require_contains "$defender" 'if [[ -z "$OPERATOR_STATE_GIT_BRANCH" ]]' 'CLIProxy inference state is not isolated from legacy journal migration'
+require_contains "$defender" 'Legacy journal import requires CPA_DEFENDER_GITSTORE_URL and CPA_DEFENDER_GITSTORE_TOKEN when OPERATOR_STATE_GIT_BRANCH is configured' 'partial legacy migration configuration is not rejected'
 
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE' 'Proposer inference mode variable is missing'
+require_contains "$proposer" 'PROPOSER_INFERENCE_PROVIDER' 'Proposer inference provider variable is missing'
+require_contains "$proposer" "github.ref_name == github.event.repository.default_branch" 'Proposer must run only on the default branch'
+require_contains "$proposer" "vars.PROPOSER_SCHEDULES_ENABLED == 'true'" 'Proposer schedule is not independently gated'
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE PROPOSER_INFERENCE_API_KEY DEFENDER_INFERENCE_MODE \' 'Proposer direct mode still has GitStore fields in its common required contract'
 require_contains "$proposer" 'PROPOSER_INFERENCE_BASE_URL' 'Proposer direct base URL variable is missing'
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE must be direct or cliproxy' 'Proposer inference mode is not validated'
 require_contains "$proposer" 'PROPOSER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' 'Proposer direct inference does not require a safe HTTPS URL'
 require_contains "$proposer" '*) base_url="$base_url/v1" ;;' 'Proposer direct inference does not normalize a service origin to /v1'
 require_contains "$proposer" 'Authorization: Bearer $INFERENCE_API_KEY' 'Proposer direct endpoint is not probed with Bearer authentication'
+require_contains "$proposer" 'x-api-key: $INFERENCE_API_KEY' 'Proposer Anthropic endpoint is not probed with x-api-key authentication'
+require_contains "$proposer" 'anthropic-version: 2023-06-01' 'Proposer Anthropic inference version header is missing'
+require_contains "$proposer" '-e INFERENCE_PROVIDER' 'Proposer runtime does not receive its inference provider'
 require_contains "$proposer" "steps.inference.outputs.mode == 'cliproxy'" 'Proposer CLIProxy sidecar is not conditional'
 require_contains "$proposer" "steps.inference.outputs.mode == 'direct'" 'Proposer direct endpoint path is not conditional'
 require_contains "$proposer" 'tailscale/github-action@v4' 'Proposer optional Tailscale connectivity is missing'
@@ -116,29 +127,40 @@ require_contains "$proposer" 'MODE_INPUT: dry-run' 'This deployment must hard-co
 reject_pattern 'live-one-cycle|observe-only|confirm_live_broadcast|confirm_bypass_proposer_defender_check' 'This deployment must not expose non-dry-run Proposer modes' "$proposer"
 reject_pattern 'secrets\.(PROPOSER_KEYSTORE_JSON_B64|PROPOSER_KEYSTORE_PASSWORD|PROPOSER_FOUNDRY_ACCOUNT|AUCTION_LAUNCHER_)|CONFIRM_LIVE_BROADCAST_INPUT|MIN_SIGNER_BALANCE_WEI' 'Dry-run Proposer workflow must not receive transaction signing material' "$proposer"
 reject_pattern 'OPERATOR_STATE_MODE|OPERATOR_STATE_GIT_TOKEN' 'Proposer must not receive Defender persistence authority' "$proposer"
+reject_pattern 'DTF_SCHEDULES_ENABLED' 'obsolete shared schedule gate remains' "$proposer" "$defender" "$readme"
 
 require_contains "$setup_proposer" '--inference-base-url' 'Proposer setup does not expose direct inference'
+require_contains "$setup_proposer" '--inference-provider' 'Proposer setup does not expose provider selection'
 require_contains "$setup_proposer" '--use-cliproxy-gitstore' 'Proposer setup does not retain optional CLIProxy mode'
 require_contains "$setup_proposer" 'PROPOSER_INFERENCE_API_KEY is required for direct inference' 'Proposer direct setup must require a provider key'
 require_contains "$setup_proposer" 'set_variable PROPOSER_INFERENCE_MODE' 'Proposer setup does not configure the mode variable'
+require_contains "$setup_proposer" 'set_variable PROPOSER_INFERENCE_PROVIDER' 'Proposer setup does not configure the provider variable'
 require_contains "$setup_proposer" 'set_variable PROPOSER_INFERENCE_BASE_URL' 'Proposer setup does not configure the direct URL'
 require_contains "$setup_defender" '--inference-base-url' 'Defender setup does not expose direct inference'
+require_contains "$setup_defender" '--inference-provider' 'Defender setup does not expose provider selection'
 require_contains "$setup_defender" '--use-cliproxy-gitstore' 'Defender setup does not retain optional CLIProxy mode'
 require_contains "$setup_defender" 'DEFENDER_INFERENCE_API_KEY is required for direct inference' 'Defender direct setup must require a provider key'
 require_contains "$setup_defender" 'set_variable DEFENDER_INFERENCE_MODE' 'Defender setup does not configure the mode variable'
+require_contains "$setup_defender" 'set_variable DEFENDER_INFERENCE_PROVIDER' 'Defender setup does not configure the provider variable'
 require_contains "$setup_defender" 'set_variable DEFENDER_INFERENCE_BASE_URL' 'Defender setup does not configure the direct URL'
 require_contains "$setup_defender" 'run one manual Defender dispatch to initialize and save the Actions cache journal' 'Defender setup still directs users to initialize Git state'
 require_contains "$seed_cpa" 'Either role uses it only' 'CPA seeding is not documented as optional for both roles'
 require_contains "$seed_cpa" 'other_mode="$(get_variable "${other_prefix#CPA_}_INFERENCE_MODE")"' 'CPA seeding does not condition cross-role isolation on the other role mode'
 require_contains "$seed_cpa" 'set_variable PROPOSER_INFERENCE_MODE cliproxy' 'Proposer CPA seeding does not select cliproxy mode'
 require_contains "$seed_cpa" 'set_variable DEFENDER_INFERENCE_MODE cliproxy' 'Defender CPA seeding does not select cliproxy mode'
+require_contains "$seed_cpa" '.type | select(. == "codex" or . == "claude")' 'CPA seeding does not accept both Codex and Claude OAuth records'
+require_contains "$seed_cpa" 'set_variable PROPOSER_INFERENCE_PROVIDER anthropic' 'Proposer Claude OAuth seeding does not select Anthropic inference'
+require_contains "$seed_cpa" 'set_variable DEFENDER_INFERENCE_PROVIDER anthropic' 'Defender Claude OAuth seeding does not select Anthropic inference'
 reject_pattern 'Defender CPA and journal branches must differ|initialize the Defender journal' 'obsolete Defender Git journal coupling remains' "$seed_cpa" "$setup_defender" "$setup_proposer"
 
 require_contains "$readme" 'When both roles use direct inference, no CPA/GitStore' 'README does not document the zero-GitStore path'
 require_contains "$readme" 'PROPOSER_INFERENCE_MODE=direct' 'README does not document Proposer direct mode'
 require_contains "$readme" 'DEFENDER_INFERENCE_MODE=direct' 'README does not document Defender direct mode'
-require_contains "$readme" 'corresponding role' 'README does not document role-specific Bearer authentication'
+require_contains "$readme" 'Chat Completions with Bearer authentication' 'README does not document OpenAI-compatible Bearer authentication'
 require_contains "$readme" 'openrouter.ai/api/v1' 'README does not document OpenRouter direct mode'
+require_contains "$readme" 'api.anthropic.com/v1' 'README does not document direct Anthropic inference'
+require_contains "$readme" '`-claude-login`' 'README does not document Claude subscription OAuth seeding'
+require_contains "$readme" 'claude-fable-5' 'README does not document Anthropic model configuration'
 require_contains "$readme" 'router-for-me/CLIProxyAPI' 'README does not document remote CLIProxyAPI direct mode'
 require_contains "$readme" 'TS_OAUTH_CLIENT_ID' 'README does not document optional Tailscale credentials'
 require_contains "$readme" 'Operational limitation: runner cancellation' 'README does not disclose cache loss semantics'
