@@ -32,27 +32,37 @@ Set these repository values:
 
 ```text
 Variable: PROPOSER_INFERENCE_MODE=direct
+Variable: PROPOSER_INFERENCE_PROVIDER=openai-compatible|anthropic
 Variable: PROPOSER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   PROPOSER_INFERENCE_API_KEY=<provider API key>
 
 Variable: DEFENDER_INFERENCE_MODE=direct
+Variable: DEFENDER_INFERENCE_PROVIDER=openai-compatible|anthropic
 Variable: DEFENDER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   DEFENDER_INFERENCE_API_KEY=<provider API key>
 ```
 
 The workflows append `/v1` when the configured URL does not already end in it.
-The runtime sends OpenAI-compatible `POST <resolved-base-url>/chat/completions` requests
-with the corresponding role's API key as `Authorization: Bearer`. Supported
-examples include OpenRouter (`https://openrouter.ai/api/v1`) and a remotely hosted
-[`router-for-me/CLIProxyAPI`](https://github.com/router-for-me/CLIProxyAPI)
-endpoint. Neither endpoint needs CPA GitStore variables or OAuth files in the
-operator repository.
+`openai-compatible` sends Chat Completions with Bearer authentication and
+supports native OpenAI, OpenRouter (`https://openrouter.ai/api/v1`), and a
+remotely hosted [`router-for-me/CLIProxyAPI`](https://github.com/router-for-me/CLIProxyAPI)
+endpoint. `anthropic` sends native Messages requests with `x-api-key`,
+`anthropic-version`, effort controls, and `output_config.format` structured
+outputs. Use it with `https://api.anthropic.com/v1` or a Claude-backed remote
+CLIProxyAPI endpoint. Direct endpoints need no CPA GitStore variables or OAuth
+files in the operator repository.
+
+Provider selection does not rewrite public model configuration. For Anthropic,
+set the matching `proposer.inference.model` or `defender.inference.model` in
+`.github/dtf-operator.yml` to a Claude model that supports structured outputs,
+such as `claude-fable-5`. For OpenRouter, use its vendor-prefixed model ID.
 
 Use each setup helper with a separate provider-issued key:
 
 ```bash
 PROPOSER_INFERENCE_API_KEY='<proposer-provider-key>' \
 scripts/setup-github-proposer \
+  --inference-provider openai-compatible \
   --inference-base-url 'https://<host>' \
   --generate-keystore-dir ~/.dtf-operator/production/proposer-keystores \
   --keystore-password-file ~/.dtf-operator/production/proposer-password \
@@ -63,6 +73,7 @@ RESEND_API_KEY='<resend-key>' \
 DEFENDER_INFERENCE_API_KEY='<defender-provider-key>' \
 scripts/setup-github-defender \
   --email '<operator-alert-address>' \
+  --inference-provider openai-compatible \
   --inference-base-url 'https://<host>' \
   --generate-keystore-dir ~/.dtf-operator/production/defender-keystores \
   --keystore-password-file ~/.dtf-operator/production/defender-password \
@@ -96,6 +107,7 @@ Operators retaining a local CLIProxy OAuth sidecar configure the matching role:
 ```text
 Variable: PROPOSER_INFERENCE_MODE=cliproxy
 Variables: CPA_PROPOSER_GITSTORE_URL, CPA_PROPOSER_GITSTORE_BRANCH
+Variable: PROPOSER_INFERENCE_PROVIDER       # openai-compatible for Codex; anthropic for Claude
 Variable: CPA_PROPOSER_OAUTH_IDENTITY
 Secret: CPA_PROPOSER_GITSTORE_TOKEN
 Secret: CPA_PROPOSER_OAUTH_FINGERPRINT
@@ -103,13 +115,17 @@ Secret: PROPOSER_INFERENCE_API_KEY
 
 Variable: DEFENDER_INFERENCE_MODE=cliproxy
 Variables: CPA_DEFENDER_GITSTORE_URL, CPA_DEFENDER_GITSTORE_BRANCH
+Variable: DEFENDER_INFERENCE_PROVIDER       # openai-compatible for Codex; anthropic for Claude
 Variable: CPA_DEFENDER_OAUTH_IDENTITY
 Secret: CPA_DEFENDER_GITSTORE_TOKEN
 Secret: CPA_DEFENDER_OAUTH_FINGERPRINT
 Secret: DEFENDER_INFERENCE_API_KEY
 ```
 
-Seed only the role or roles using CLIProxy. When both roles use CLIProxy, use
+Seed only the role or roles using CLIProxy. The seeder accepts one Codex or
+Claude OAuth record and configures the matching inference provider
+automatically. Create the source record with CLIProxyAPI's `-codex-login` or
+`-claude-login` flow. When both roles use CLIProxy, use
 different logins and repositories and set
 `CPA_OAUTH_ISOLATION=separate-gitstores-and-logins`:
 
@@ -288,6 +304,7 @@ Required Defender Variables:
 
 ```text
 DEFENDER_INFERENCE_MODE             # direct recommended; cliproxy optional
+DEFENDER_INFERENCE_PROVIDER         # openai-compatible (default) or anthropic
 DEFENDER_INFERENCE_BASE_URL         # direct only
 DEFENDER_SIGNER_ADDRESS
 DEFENDER_SCHEDULES_ENABLED          # true only after Defender acceptance
@@ -297,6 +314,7 @@ Required Proposer Variables:
 
 ```text
 PROPOSER_INFERENCE_MODE             # direct recommended; cliproxy optional
+PROPOSER_INFERENCE_PROVIDER         # openai-compatible (default) or anthropic
 PROPOSER_INFERENCE_BASE_URL         # direct only
 PROPOSER_SIGNER_ADDRESS
 PROPOSER_SCHEDULES_ENABLED          # optional; enables scheduled Proposer runs
@@ -343,7 +361,11 @@ one signer. Do not create a workflow matrix or one job per Folio.
 
 Scheduled and manual Defender dispatches are one-shot. Failed proposals remain
 retryable without blocking unrelated Folios unless an unresolved signed-veto
-transaction creates the signer-wide recovery blocker.
+transaction creates the signer-wide recovery blocker. Proposal discovery and
+durable queueing continue while signing is blocked. After five minutes, the
+runtime may persist and broadcast a same-nonce, same-intent replacement with a
+12.5% fee bump; unrelated signing resumes only after one transaction in the
+replacement chain finalizes or reverts.
 
 ## Operational security
 
