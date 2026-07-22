@@ -32,15 +32,16 @@ Set these repository values:
 
 ```text
 Variable: PROPOSER_INFERENCE_MODE=direct
-Variable: PROPOSER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>/v1
+Variable: PROPOSER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   PROPOSER_INFERENCE_API_KEY=<provider API key>
 
 Variable: DEFENDER_INFERENCE_MODE=direct
-Variable: DEFENDER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>/v1
+Variable: DEFENDER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   DEFENDER_INFERENCE_API_KEY=<provider API key>
 ```
 
-The runtime sends OpenAI-compatible `POST <base-url>/chat/completions` requests
+The workflows append `/v1` when the configured URL does not already end in it.
+The runtime sends OpenAI-compatible `POST <resolved-base-url>/chat/completions` requests
 with the corresponding role's API key as `Authorization: Bearer`. Supported
 examples include OpenRouter (`https://openrouter.ai/api/v1`) and a remotely hosted
 [`router-for-me/CLIProxyAPI`](https://github.com/router-for-me/CLIProxyAPI)

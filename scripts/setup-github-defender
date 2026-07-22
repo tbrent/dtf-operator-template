@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: RESEND_API_KEY=<key> DEFENDER_INFERENCE_API_KEY=<provider-key> \
   scripts/setup-github-defender --email <address> \
-  --inference-base-url <https://host/v1> [options]
+  --inference-base-url <https://host> [options]
 
 Uploads Defender inference, email, signer secrets, account name, and the signer
 address to a private operator fork. Direct OpenAI-compatible inference is the
@@ -19,7 +19,7 @@ Required:
 
 Options:
   --from-email <address>           Optional sender; defaults in runtime when unset
-  --inference-base-url <url>       Direct HTTPS OpenAI-compatible /v1 base URL
+  --inference-base-url <url>       Direct HTTPS OpenAI-compatible service URL
   --use-cliproxy-gitstore          Retain the optional local CLIProxy GitStore mode
   --init-keystore-password         Create password file if missing
   --force-keystore-password        Replace generated password file before creating a new keystore
@@ -207,7 +207,7 @@ echo "Setting dedicated Defender GitHub configuration${repo:+ for $repo}"
 set_secret DEFENDER_INFERENCE_API_KEY "$inference_api_key"
 set_variable DEFENDER_INFERENCE_MODE "$inference_mode"
 if [[ "$inference_mode" == direct ]]; then
-  set_variable DEFENDER_INFERENCE_BASE_URL "${inference_base_url%/}"
+  set_variable DEFENDER_INFERENCE_BASE_URL "$inference_base_url"
 fi
 set_secret RESEND_API_KEY "$RESEND_API_KEY"
 set_secret DEFENDER_EMAIL_TO "$email"
