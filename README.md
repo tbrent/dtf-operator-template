@@ -32,15 +32,16 @@ Set these repository values:
 
 ```text
 Variable: PROPOSER_INFERENCE_MODE=direct
-Variable: PROPOSER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>/v1
+Variable: PROPOSER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   PROPOSER_INFERENCE_API_KEY=<provider API key>
 
 Variable: DEFENDER_INFERENCE_MODE=direct
-Variable: DEFENDER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>/v1
+Variable: DEFENDER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   DEFENDER_INFERENCE_API_KEY=<provider API key>
 ```
 
-The runtime sends OpenAI-compatible `POST <base-url>/chat/completions` requests
+The workflows append `/v1` when the configured URL does not already end in it.
+The runtime sends OpenAI-compatible `POST <resolved-base-url>/chat/completions` requests
 with the corresponding role's API key as `Authorization: Bearer`. Supported
 examples include OpenRouter (`https://openrouter.ai/api/v1`) and a remotely hosted
 [`router-for-me/CLIProxyAPI`](https://github.com/router-for-me/CLIProxyAPI)
@@ -52,7 +53,7 @@ Use each setup helper with a separate provider-issued key:
 ```bash
 PROPOSER_INFERENCE_API_KEY='<proposer-provider-key>' \
 scripts/setup-github-proposer \
-  --inference-base-url 'https://<host>/v1' \
+  --inference-base-url 'https://<host>' \
   --generate-keystore-dir ~/.dtf-operator/production/proposer-keystores \
   --keystore-password-file ~/.dtf-operator/production/proposer-password \
   --init-keystore-password \
@@ -62,7 +63,7 @@ RESEND_API_KEY='<resend-key>' \
 DEFENDER_INFERENCE_API_KEY='<defender-provider-key>' \
 scripts/setup-github-defender \
   --email '<operator-alert-address>' \
-  --inference-base-url 'https://<host>/v1' \
+  --inference-base-url 'https://<host>' \
   --generate-keystore-dir ~/.dtf-operator/production/defender-keystores \
   --keystore-password-file ~/.dtf-operator/production/defender-password \
   --init-keystore-password \
@@ -82,10 +83,11 @@ TS_OAUTH_SECRET
 ```
 
 They are optional but must be configured together. Each direct-mode job uses
-`tailscale/github-action@v4` with `tag:ci` before probing and calling its endpoint.
-Create a Tailscale OAuth client with the writable `auth_keys` scope and
-permission to issue `tag:ci` nodes. Tailscale changes only network access; it
-does not introduce a GitStore requirement.
+`tailscale/github-action@v4` with `TAILSCALE_TAGS` when configured, defaulting
+to `tag:github-actions`, before probing and calling its endpoint. Create a
+Tailscale OAuth client with the writable `auth_keys` scope and permission to
+issue that tag. Tailscale changes only network access; it does not introduce a
+GitStore requirement.
 
 ### Optional legacy CLIProxy GitStore
 
@@ -208,7 +210,7 @@ Configure direct Proposer inference and its signer:
 ```bash
 PROPOSER_INFERENCE_API_KEY='<proposer-provider-key>' \
 scripts/setup-github-proposer \
-  --inference-base-url 'https://<host>/v1' \
+  --inference-base-url 'https://<host>' \
   --generate-keystore-dir ~/.dtf-operator/production/proposer-keystores \
   --keystore-password-file ~/.dtf-operator/production/proposer-password \
   --init-keystore-password \
