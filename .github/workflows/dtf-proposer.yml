@@ -5,15 +5,6 @@ on:
     - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
-      mode:
-        description: Safe proposer mode to run
-        required: true
-        default: dry-run
-        type: choice
-        options:
-          - dry-run
-          - observe-only
-          - live-one-cycle
       run_hours:
         description: Optional RUN_HOURS override for this manual dispatch
         required: false
@@ -29,23 +20,8 @@ on:
         required: false
         default: ''
         type: string
-      confirm_live_broadcast:
-        description: Confirm manual live mode may broadcast proposer, execute, and openAuction transactions
-        required: false
-        default: false
-        type: boolean
-      allow_public_rpc:
-        description: Allow known public fallback RPCs for observe-only operation
-        required: false
-        default: false
-        type: boolean
       rpc_url_override:
         description: Optional RPC URL for this dispatch only
-        required: false
-        default: ''
-        type: string
-      confirm_bypass_proposer_defender_check:
-        description: Type BYPASS_PROPOSER_DEFENDER_CHECK to bypass the self-check in live mode
         required: false
         default: ''
         type: string
@@ -281,7 +257,7 @@ jobs:
           auth_files="$(curl -fsS -H "Authorization: Bearer $MANAGEMENT_PASSWORD" http://127.0.0.1:8317/v0/management/auth-files)"
           [[ "$auth_files" != *'"files":[]'* ]] || { echo 'Proposer CPA GitStore contains no OAuth records' >&2; exit 2; }
 
-      - name: Run proposer
+      - name: Run proposer dry-run
         shell: bash
         env:
           PROPOSER_INFERENCE_MODE: ${{ steps.inference.outputs.mode }}
@@ -296,24 +272,13 @@ jobs:
           DEFENDER_EMAIL_TO: ${{ secrets.DEFENDER_EMAIL_TO || vars.DEFENDER_EMAIL_TO }}
           DEFENDER_EMAIL_FROM: ${{ secrets.DEFENDER_EMAIL_FROM || vars.DEFENDER_EMAIL_FROM }}
           INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
-          PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}
-          PROPOSER_KEYSTORE_PASSWORD: ${{ secrets.PROPOSER_KEYSTORE_PASSWORD }}
-          FOUNDRY_ACCOUNT: ${{ secrets.PROPOSER_FOUNDRY_ACCOUNT }}
           SIGNER_ADDRESS: ${{ vars.PROPOSER_SIGNER_ADDRESS }}
           PROPOSER_SIGNER_ADDRESS: ${{ vars.PROPOSER_SIGNER_ADDRESS }}
-          AUCTION_LAUNCHER_KEYSTORE_JSON_B64: ${{ secrets.AUCTION_LAUNCHER_KEYSTORE_JSON_B64 }}
-          AUCTION_LAUNCHER_KEYSTORE_PASSWORD: ${{ secrets.AUCTION_LAUNCHER_KEYSTORE_PASSWORD }}
-          AUCTION_LAUNCHER_FOUNDRY_ACCOUNT: ${{ secrets.AUCTION_LAUNCHER_FOUNDRY_ACCOUNT }}
-          MIN_SIGNER_BALANCE_WEI: ${{ vars.MIN_SIGNER_BALANCE_WEI || '1' }}
-          MODE_INPUT: ${{ inputs.mode || '' }}
-          CONFIRM_LIVE_BROADCAST_INPUT: ${{ inputs.confirm_live_broadcast || false }}
+          MODE_INPUT: dry-run
           RUN_HOURS_INPUT: ${{ inputs.run_hours }}
           MIN_OPEN_AUCTION_VALUE_USD_INPUT: ${{ inputs.min_open_auction_value_usd }}
           COWBOT_MIN_VALUE_USD_INPUT: ${{ inputs.cowbot_min_value_usd }}
-          ALLOW_PUBLIC_RPC_INPUT: ${{ inputs.allow_public_rpc || false }}
           RPC_URL_OVERRIDE_INPUT: ${{ inputs.rpc_url_override }}
-          BYPASS_PROPOSER_DEFENDER_CHECK_INPUT: ${{ inputs.confirm_bypass_proposer_defender_check == 'BYPASS_PROPOSER_DEFENDER_CHECK' }}
-          CONFIRM_BYPASS_PROPOSER_DEFENDER_CHECK_INPUT: ${{ inputs.confirm_bypass_proposer_defender_check }}
         run: |
           set -euo pipefail
           mkdir -p proposer-data
@@ -338,24 +303,13 @@ jobs:
             -e BSC_RPC_URL \
             -e BASE_RPC_URL \
             -e ALLOW_SYNTHETIC_SIGNAL_STRATEGY_VAR \
-            -e PROPOSER_KEYSTORE_JSON_B64 \
-            -e PROPOSER_KEYSTORE_PASSWORD \
-            -e FOUNDRY_ACCOUNT \
             -e SIGNER_ADDRESS \
             -e PROPOSER_SIGNER_ADDRESS \
-            -e AUCTION_LAUNCHER_KEYSTORE_JSON_B64 \
-            -e AUCTION_LAUNCHER_KEYSTORE_PASSWORD \
-            -e AUCTION_LAUNCHER_FOUNDRY_ACCOUNT \
-            -e MIN_SIGNER_BALANCE_WEI \
             -e MODE_INPUT \
-            -e CONFIRM_LIVE_BROADCAST_INPUT \
             -e RUN_HOURS_INPUT \
             -e MIN_OPEN_AUCTION_VALUE_USD_INPUT \
             -e COWBOT_MIN_VALUE_USD_INPUT \
-            -e ALLOW_PUBLIC_RPC_INPUT \
             -e RPC_URL_OVERRIDE_INPUT \
-            -e BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
-            -e CONFIRM_BYPASS_PROPOSER_DEFENDER_CHECK_INPUT \
             -e GITHUB_SERVER_URL \
             -e GITHUB_REPOSITORY \
             -e GITHUB_EVENT_NAME \

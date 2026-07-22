@@ -112,6 +112,9 @@ require_contains "$proposer" 'TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET must be con
 require_contains "$proposer" 'network_args=(--network host)' 'Proposer direct endpoint is not exposed to its container'
 require_contains "$proposer" 'DEFENDER_INFERENCE_MODE' 'Proposer isolation must understand Defender direct mode'
 require_contains "$proposer" 'if [[ "$DEFENDER_INFERENCE_MODE" == cliproxy ]]' 'Proposer still unconditionally requires Defender CPA configuration'
+require_contains "$proposer" 'MODE_INPUT: dry-run' 'This deployment must hard-code Proposer dry-run mode'
+reject_pattern 'live-one-cycle|observe-only|confirm_live_broadcast|confirm_bypass_proposer_defender_check' 'This deployment must not expose non-dry-run Proposer modes' "$proposer"
+reject_pattern 'secrets\.(PROPOSER_KEYSTORE_JSON_B64|PROPOSER_KEYSTORE_PASSWORD|PROPOSER_FOUNDRY_ACCOUNT|AUCTION_LAUNCHER_)|CONFIRM_LIVE_BROADCAST_INPUT|MIN_SIGNER_BALANCE_WEI' 'Dry-run Proposer workflow must not receive transaction signing material' "$proposer"
 reject_pattern 'OPERATOR_STATE_MODE|OPERATOR_STATE_GIT_TOKEN' 'Proposer must not receive Defender persistence authority' "$proposer"
 
 require_contains "$setup_proposer" '--inference-base-url' 'Proposer setup does not expose direct inference'
@@ -145,6 +148,7 @@ reject_pattern 'Proposer (requires|continues to use).*GitStore|Proposer \| Exist
 
 require_contains "$config" 'maxVetoDelayPlusPeriod: 1209600s' 'Defender maximum must remain exactly 1209600 seconds'
 require_contains "$config" 'alertOnlyWithoutSigner: false' 'production Defender must require its signer'
+require_contains "$config" 'frequencyMinutes: 15' 'Defender must scan every 15 minutes in this deployment'
 reject_pattern '(^|[[:space:]])matrix:' 'Defender must not use a per-Folio matrix' "$defender"
 reject_pattern 'SIGNED_TRANSACTION|RAW_TRANSACTION|SIGNED_TX_BYTES|RAW_TX_BYTES|signedTransaction[[:space:]:=]|signed_transaction[[:space:]:=]|rawTransaction[[:space:]:=]|raw_transaction[[:space:]:=]' 'plaintext signed transaction fields are forbidden' "$proposer" "$defender" "$config" "$readme"
 reject_pattern 'gh secret set[^|]*--body' 'credentials must not be passed in gh command arguments' "$seed_cpa" "$setup_proposer" "$setup_defender"

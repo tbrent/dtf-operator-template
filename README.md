@@ -14,6 +14,10 @@ before execution.
 
 Proposer and Defender remain separate serial jobs and use distinct EVM signers:
 
+This deployment hard-codes every scheduled and manual Proposer run to dry-run
+mode. Defender remains independently scheduled and scans its five configured
+Folio/governor pairs every 15 minutes.
+
 | Role | Inference | Persistent runtime state | Concurrency |
 | --- | --- | --- | --- |
 | Proposer | Direct HTTPS recommended; CLIProxy optional | Per-run artifacts | `dtf-proposer-<repository_id>` |

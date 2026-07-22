@@ -72,6 +72,14 @@ sed -i '/Authorization: Bearer \$INFERENCE_API_KEY/d' "$fixture/.github/workflow
 expect_rejected proposer_direct_bearer_auth "$fixture"
 
 fixture="$(new_fixture)"
+sed -i 's/MODE_INPUT: dry-run/MODE_INPUT: live-one-cycle/' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_live_mode "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/MODE_INPUT: dry-run/a\          PROPOSER_KEYSTORE_JSON_B64: ${{ secrets.PROPOSER_KEYSTORE_JSON_B64 }}' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_signing_material "$fixture"
+
+fixture="$(new_fixture)"
 sed -i '/tailscale\/github-action@v4/d' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected tailscale_action "$fixture"
 
@@ -106,6 +114,10 @@ expect_rejected obsolete_initializer "$fixture"
 fixture="$(new_fixture)"
 sed -i 's/maxVetoDelayPlusPeriod: 1209600s/maxVetoDelayPlusPeriod: 1209601s/' "$fixture/.github/dtf-operator.yml"
 expect_rejected veto_maximum "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/frequencyMinutes: 15/frequencyMinutes: 30/' "$fixture/.github/dtf-operator.yml"
+expect_rejected defender_frequency "$fixture"
 
 fixture="$(new_fixture)"
 printf '\n# SIGNED_TRANSACTION: forbidden\n' >> "$fixture/.github/workflows/dtf-defender.yml"

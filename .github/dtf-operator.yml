@@ -56,8 +56,8 @@ defender:
 
   # The workflow wakes up every 15 minutes, then this frequency gate skips extra
   # runs so forks can tune cadence from this one config file. This value may be
-  # raised above 30; GitHub schedules are best-effort, so actual gaps can be longer.
-  frequencyMinutes: 30
+  # raised above 15; GitHub schedules are best-effort, so actual gaps can be longer.
+  frequencyMinutes: 15
   runHours: 1
   pollSeconds: 20
   waitActiveSeconds: 120
