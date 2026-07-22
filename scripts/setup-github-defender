@@ -156,6 +156,7 @@ if [[ -n "$inference_base_url" ]]; then
   [[ "$inference_base_url" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || die "--inference-base-url must be a single-line https URL"
   case "$inference_base_url" in
     https://*@*) die "--inference-base-url must not contain credentials" ;;
+    *\?*|*\#*) die "--inference-base-url must not contain query parameters or a fragment" ;;
   esac
   [[ -n "${DEFENDER_INFERENCE_API_KEY:-}" ]] || die "DEFENDER_INFERENCE_API_KEY is required for direct inference"
 fi
@@ -220,7 +221,7 @@ set_secret DEFENDER_INFERENCE_API_KEY "$inference_api_key"
 set_variable DEFENDER_INFERENCE_MODE "$inference_mode"
 set_variable DEFENDER_INFERENCE_PROVIDER "$inference_provider"
 if [[ "$inference_mode" == direct ]]; then
-  set_variable DEFENDER_INFERENCE_BASE_URL "$inference_base_url"
+  set_secret DEFENDER_INFERENCE_BASE_URL "$inference_base_url"
 fi
 set_secret RESEND_API_KEY "$RESEND_API_KEY"
 set_secret DEFENDER_EMAIL_TO "$email"

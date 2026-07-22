@@ -55,7 +55,7 @@ jobs:
         env:
           PROPOSER_INFERENCE_MODE: ${{ vars.PROPOSER_INFERENCE_MODE }}
           PROPOSER_INFERENCE_PROVIDER: ${{ vars.PROPOSER_INFERENCE_PROVIDER || 'openai-compatible' }}
-          PROPOSER_INFERENCE_BASE_URL: ${{ vars.PROPOSER_INFERENCE_BASE_URL }}
+          PROPOSER_INFERENCE_BASE_URL: ${{ secrets.PROPOSER_INFERENCE_BASE_URL || vars.PROPOSER_INFERENCE_BASE_URL }}
           PROPOSER_INFERENCE_API_KEY: ${{ secrets.PROPOSER_INFERENCE_API_KEY }}
           DEFENDER_INFERENCE_MODE: ${{ vars.DEFENDER_INFERENCE_MODE }}
           CPA_PROPOSER_GITSTORE_URL: ${{ vars.CPA_PROPOSER_GITSTORE_URL }}
@@ -95,6 +95,7 @@ jobs:
               [[ "$PROPOSER_INFERENCE_BASE_URL" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || { echo 'PROPOSER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' >&2; exit 2; }
               case "$PROPOSER_INFERENCE_BASE_URL" in
                 https://*@*) echo 'PROPOSER_INFERENCE_BASE_URL must not contain credentials' >&2; exit 2 ;;
+                *\?*|*\#*) echo 'PROPOSER_INFERENCE_BASE_URL must not contain query parameters or a fragment' >&2; exit 2 ;;
               esac
               base_url="${PROPOSER_INFERENCE_BASE_URL%/}"
               case "$base_url" in
@@ -361,9 +362,10 @@ jobs:
             node dist/cli/summarize-github-proposer-artifacts.js /data
 
       - name: Upload proposer artifacts
-        if: always()
+        if: always() && github.event.repository.private == true
         uses: actions/upload-artifact@v7
         with:
           name: dtf-proposer-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
           path: proposer-data
           if-no-files-found: warn
+          retention-days: 14

@@ -147,6 +147,7 @@ if [[ -n "$inference_base_url" ]]; then
   [[ "$inference_base_url" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || die "--inference-base-url must be a single-line https URL"
   case "$inference_base_url" in
     https://*@*) die "--inference-base-url must not contain credentials" ;;
+    *\?*|*\#*) die "--inference-base-url must not contain query parameters or a fragment" ;;
   esac
   [[ -n "${PROPOSER_INFERENCE_API_KEY:-}" ]] || die "PROPOSER_INFERENCE_API_KEY is required for direct inference"
 fi
@@ -215,7 +216,7 @@ set_secret PROPOSER_INFERENCE_API_KEY "$inference_api_key"
 set_variable PROPOSER_INFERENCE_MODE "$inference_mode"
 set_variable PROPOSER_INFERENCE_PROVIDER "$inference_provider"
 if [[ "$inference_mode" == direct ]]; then
-  set_variable PROPOSER_INFERENCE_BASE_URL "$inference_base_url"
+  set_secret PROPOSER_INFERENCE_BASE_URL "$inference_base_url"
 fi
 set_base64_file_secret PROPOSER_KEYSTORE_JSON_B64 "$keystore"
 set_secret PROPOSER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"

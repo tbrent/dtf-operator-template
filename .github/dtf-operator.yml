@@ -28,8 +28,8 @@ proposer:
   cowbotMinValueUsd:
   allowSyntheticSignalStrategy: true
   # Configure the endpoint with PROPOSER_INFERENCE_MODE /
-  # PROPOSER_INFERENCE_BASE_URL and PROPOSER_INFERENCE_API_KEY. Direct HTTPS
-  # mode is recommended and needs no GitStore.
+  # PROPOSER_INFERENCE_PROVIDER variables plus PROPOSER_INFERENCE_BASE_URL and
+  # PROPOSER_INFERENCE_API_KEY secrets. Direct HTTPS needs no GitStore.
   inference:
     model: gpt-5.6-luna
     reasoningEffort: medium
@@ -111,8 +111,9 @@ defender:
   # isolation preflight when signer secrets are missing.
   alertOnlyWithoutSigner: false
   # Model settings are public. Configure the endpoint with the
-  # DEFENDER_INFERENCE_MODE / DEFENDER_INFERENCE_BASE_URL repository variables
-  # and DEFENDER_INFERENCE_API_KEY secret; direct HTTPS mode needs no GitStore.
+  # DEFENDER_INFERENCE_MODE / DEFENDER_INFERENCE_PROVIDER variables plus
+  # DEFENDER_INFERENCE_BASE_URL and DEFENDER_INFERENCE_API_KEY secrets; direct
+  # HTTPS mode needs no GitStore.
   inference:
     model: gpt-5.6-luna
     reasoningEffort: medium

@@ -45,7 +45,7 @@ jobs:
         env:
           DEFENDER_INFERENCE_MODE: ${{ vars.DEFENDER_INFERENCE_MODE }}
           DEFENDER_INFERENCE_PROVIDER: ${{ vars.DEFENDER_INFERENCE_PROVIDER || 'openai-compatible' }}
-          DEFENDER_INFERENCE_BASE_URL: ${{ vars.DEFENDER_INFERENCE_BASE_URL }}
+          DEFENDER_INFERENCE_BASE_URL: ${{ secrets.DEFENDER_INFERENCE_BASE_URL || vars.DEFENDER_INFERENCE_BASE_URL }}
           DEFENDER_INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
           PROPOSER_INFERENCE_MODE: ${{ vars.PROPOSER_INFERENCE_MODE }}
           CPA_PROPOSER_GITSTORE_URL: ${{ vars.CPA_PROPOSER_GITSTORE_URL }}
@@ -90,6 +90,7 @@ jobs:
               [[ "$DEFENDER_INFERENCE_BASE_URL" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || { echo 'DEFENDER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' >&2; exit 2; }
               case "$DEFENDER_INFERENCE_BASE_URL" in
                 https://*@*) echo 'DEFENDER_INFERENCE_BASE_URL must not contain credentials' >&2; exit 2 ;;
+                *\?*|*\#*) echo 'DEFENDER_INFERENCE_BASE_URL must not contain query parameters or a fragment' >&2; exit 2 ;;
               esac
               base_url="${DEFENDER_INFERENCE_BASE_URL%/}"
               case "$base_url" in

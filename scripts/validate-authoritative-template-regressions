@@ -202,7 +202,7 @@ PATH="$direct_fixture/bin:$PATH" \
     --keystore-password-file "$direct_fixture/password" \
     --repo owner/operator >/dev/null
 grep -Fq 'variable set PROPOSER_INFERENCE_MODE --repo owner/operator --body direct' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not set inference mode' >&2; exit 2; }
-grep -Fq 'variable set PROPOSER_INFERENCE_BASE_URL --repo owner/operator --body https://router.example/' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not preserve the configured inference URL' >&2; exit 2; }
+grep -Fq 'secret set PROPOSER_INFERENCE_BASE_URL --repo owner/operator' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not protect the configured inference URL as a secret' >&2; exit 2; }
 grep -Fq 'variable set PROPOSER_INFERENCE_PROVIDER --repo owner/operator --body openai-compatible' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not set its inference provider' >&2; exit 2; }
 if grep -Fq 'proposer-provider-secret' "$direct_fixture/gh.log"; then
   echo 'Proposer direct setup exposed its API key in gh arguments' >&2
@@ -231,7 +231,7 @@ PATH="$direct_fixture/bin:$PATH" \
     --keystore-password-file "$direct_fixture/password" \
     --repo owner/operator >/dev/null
 grep -Fq 'variable set DEFENDER_INFERENCE_MODE --repo owner/operator --body direct' "$direct_fixture/gh.log" || { echo 'direct setup did not set inference mode' >&2; exit 2; }
-grep -Fq 'variable set DEFENDER_INFERENCE_BASE_URL --repo owner/operator --body https://router.example/' "$direct_fixture/gh.log" || { echo 'direct setup did not preserve the configured inference URL' >&2; exit 2; }
+grep -Fq 'secret set DEFENDER_INFERENCE_BASE_URL --repo owner/operator' "$direct_fixture/gh.log" || { echo 'direct setup did not protect the configured inference URL as a secret' >&2; exit 2; }
 grep -Fq 'variable set DEFENDER_INFERENCE_PROVIDER --repo owner/operator --body openai-compatible' "$direct_fixture/gh.log" || { echo 'Defender direct setup did not set its inference provider' >&2; exit 2; }
 if grep -Fq 'provider-secret' "$direct_fixture/gh.log"; then
   echo 'direct setup exposed its API key in gh arguments' >&2

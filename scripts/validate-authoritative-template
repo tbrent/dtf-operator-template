@@ -81,9 +81,10 @@ require_contains "$defender" 'DEFENDER_INFERENCE_MODE' 'Defender inference mode 
 require_contains "$defender" 'DEFENDER_INFERENCE_PROVIDER' 'Defender inference provider variable is missing'
 require_contains "$defender" 'PROPOSER_INFERENCE_MODE' 'Defender isolation must understand Proposer direct mode'
 require_contains "$defender" 'DEFENDER_INFERENCE_MODE DEFENDER_INFERENCE_API_KEY PROPOSER_INFERENCE_MODE \' 'Defender direct mode still has GitStore fields in its common required contract'
-require_contains "$defender" 'DEFENDER_INFERENCE_BASE_URL' 'Defender direct base URL variable is missing'
+require_contains "$defender" 'secrets.DEFENDER_INFERENCE_BASE_URL || vars.DEFENDER_INFERENCE_BASE_URL' 'Defender direct base URL secret with variable migration fallback is missing'
 require_contains "$defender" 'DEFENDER_INFERENCE_MODE must be direct or cliproxy' 'Defender inference mode is not validated'
 require_contains "$defender" 'DEFENDER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' 'Direct inference does not require a safe HTTPS URL'
+require_contains "$defender" 'DEFENDER_INFERENCE_BASE_URL must not contain query parameters or a fragment' 'Defender base URL may still carry query credentials'
 require_contains "$defender" '*) base_url="$base_url/v1" ;;' 'Defender direct inference does not normalize a service origin to /v1'
 require_contains "$defender" 'Authorization: Bearer $INFERENCE_API_KEY' 'Direct inference endpoint is not probed with Bearer authentication'
 require_contains "$defender" 'x-api-key: $INFERENCE_API_KEY' 'Anthropic direct inference is not probed with x-api-key authentication'
@@ -108,9 +109,10 @@ require_contains "$proposer" 'PROPOSER_INFERENCE_PROVIDER' 'Proposer inference p
 require_contains "$proposer" "github.ref_name == github.event.repository.default_branch" 'Proposer must run only on the default branch'
 require_contains "$proposer" "vars.PROPOSER_SCHEDULES_ENABLED == 'true'" 'Proposer schedule is not independently gated'
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE PROPOSER_INFERENCE_API_KEY DEFENDER_INFERENCE_MODE \' 'Proposer direct mode still has GitStore fields in its common required contract'
-require_contains "$proposer" 'PROPOSER_INFERENCE_BASE_URL' 'Proposer direct base URL variable is missing'
+require_contains "$proposer" 'secrets.PROPOSER_INFERENCE_BASE_URL || vars.PROPOSER_INFERENCE_BASE_URL' 'Proposer direct base URL secret with variable migration fallback is missing'
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE must be direct or cliproxy' 'Proposer inference mode is not validated'
 require_contains "$proposer" 'PROPOSER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' 'Proposer direct inference does not require a safe HTTPS URL'
+require_contains "$proposer" 'PROPOSER_INFERENCE_BASE_URL must not contain query parameters or a fragment' 'Proposer base URL may still carry query credentials'
 require_contains "$proposer" '*) base_url="$base_url/v1" ;;' 'Proposer direct inference does not normalize a service origin to /v1'
 require_contains "$proposer" 'Authorization: Bearer $INFERENCE_API_KEY' 'Proposer direct endpoint is not probed with Bearer authentication'
 require_contains "$proposer" 'x-api-key: $INFERENCE_API_KEY' 'Proposer Anthropic endpoint is not probed with x-api-key authentication'
@@ -135,14 +137,16 @@ require_contains "$setup_proposer" '--use-cliproxy-gitstore' 'Proposer setup doe
 require_contains "$setup_proposer" 'PROPOSER_INFERENCE_API_KEY is required for direct inference' 'Proposer direct setup must require a provider key'
 require_contains "$setup_proposer" 'set_variable PROPOSER_INFERENCE_MODE' 'Proposer setup does not configure the mode variable'
 require_contains "$setup_proposer" 'set_variable PROPOSER_INFERENCE_PROVIDER' 'Proposer setup does not configure the provider variable'
-require_contains "$setup_proposer" 'set_variable PROPOSER_INFERENCE_BASE_URL' 'Proposer setup does not configure the direct URL'
+require_contains "$setup_proposer" 'set_secret PROPOSER_INFERENCE_BASE_URL' 'Proposer setup does not protect the direct URL as a secret'
+require_contains "$setup_proposer" '--inference-base-url must not contain query parameters or a fragment' 'Proposer setup may still accept query credentials'
 require_contains "$setup_defender" '--inference-base-url' 'Defender setup does not expose direct inference'
 require_contains "$setup_defender" '--inference-provider' 'Defender setup does not expose provider selection'
 require_contains "$setup_defender" '--use-cliproxy-gitstore' 'Defender setup does not retain optional CLIProxy mode'
 require_contains "$setup_defender" 'DEFENDER_INFERENCE_API_KEY is required for direct inference' 'Defender direct setup must require a provider key'
 require_contains "$setup_defender" 'set_variable DEFENDER_INFERENCE_MODE' 'Defender setup does not configure the mode variable'
 require_contains "$setup_defender" 'set_variable DEFENDER_INFERENCE_PROVIDER' 'Defender setup does not configure the provider variable'
-require_contains "$setup_defender" 'set_variable DEFENDER_INFERENCE_BASE_URL' 'Defender setup does not configure the direct URL'
+require_contains "$setup_defender" 'set_secret DEFENDER_INFERENCE_BASE_URL' 'Defender setup does not protect the direct URL as a secret'
+require_contains "$setup_defender" '--inference-base-url must not contain query parameters or a fragment' 'Defender setup may still accept query credentials'
 require_contains "$setup_defender" 'run one manual Defender dispatch to initialize and save the Actions cache journal' 'Defender setup still directs users to initialize Git state'
 require_contains "$seed_cpa" 'Either role uses it only' 'CPA seeding is not documented as optional for both roles'
 require_contains "$seed_cpa" 'other_mode="$(get_variable "${other_prefix#CPA_}_INFERENCE_MODE")"' 'CPA seeding does not condition cross-role isolation on the other role mode'
@@ -154,6 +158,7 @@ require_contains "$seed_cpa" 'set_variable DEFENDER_INFERENCE_PROVIDER anthropic
 reject_pattern 'Defender CPA and journal branches must differ|initialize the Defender journal' 'obsolete Defender Git journal coupling remains' "$seed_cpa" "$setup_defender" "$setup_proposer"
 
 require_contains "$readme" 'When both roles use direct inference, no CPA/GitStore' 'README does not document the zero-GitStore path'
+require_contains "$readme" 'Public runs do not upload Proposer artifacts' 'README does not document public artifact suppression'
 require_contains "$readme" 'PROPOSER_INFERENCE_MODE=direct' 'README does not document Proposer direct mode'
 require_contains "$readme" 'DEFENDER_INFERENCE_MODE=direct' 'README does not document Defender direct mode'
 require_contains "$readme" 'Chat Completions with Bearer authentication' 'README does not document OpenAI-compatible Bearer authentication'
@@ -173,6 +178,8 @@ require_contains "$config" 'alertOnlyWithoutSigner: false' 'production Defender 
 require_contains "$config" 'frequencyMinutes: 15' 'Defender must scan every 15 minutes in this deployment'
 reject_pattern '(^|[[:space:]])matrix:' 'Defender must not use a per-Folio matrix' "$defender"
 reject_pattern 'SIGNED_TRANSACTION|RAW_TRANSACTION|SIGNED_TX_BYTES|RAW_TX_BYTES|signedTransaction[[:space:]:=]|signed_transaction[[:space:]:=]|rawTransaction[[:space:]:=]|raw_transaction[[:space:]:=]' 'plaintext signed transaction fields are forbidden' "$proposer" "$defender" "$config" "$readme"
+require_contains "$proposer" 'always() && github.event.repository.private == true' 'Public deployment must not upload Proposer strategy artifacts'
+require_contains "$proposer" 'retention-days: 14' 'Private-repository Proposer artifacts must use bounded retention'
 reject_pattern 'gh secret set[^|]*--body' 'credentials must not be passed in gh command arguments' "$seed_cpa" "$setup_proposer" "$setup_defender"
 reject_pattern 'repository:[[:space:]]+[^#]*dtf-operator|docker build' 'operator source checkout or per-run build remains' "$proposer" "$defender"
 

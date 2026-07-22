@@ -1,8 +1,8 @@
 # DTF Operator Template
 
-Fork this repository into a private GitHub repository to operate a DTF/Folio.
-The fork owns public operator configuration and GitHub Actions orchestration.
-Credentials remain in GitHub Secrets or local keystores.
+This public operator repository owns public DTF configuration and GitHub Actions
+orchestration. Credentials remain in GitHub Secrets or local keystores.
+Public runs do not upload Proposer artifacts; compact step summaries remain public.
 
 ## Runtime image
 
@@ -20,13 +20,13 @@ Folio/governor pairs every 15 minutes.
 
 | Role | Inference | Persistent runtime state | Concurrency |
 | --- | --- | --- | --- |
-| Proposer | Direct HTTPS recommended; CLIProxy optional | Per-run artifacts | `dtf-proposer-<repository_id>` |
+| Proposer | Direct HTTPS recommended; CLIProxy optional | Public deployment: no uploaded artifacts | `dtf-proposer-<repository_id>` |
 | Defender | Direct HTTPS recommended; CLIProxy optional | Rolling GitHub Actions cache | `dtf-defender-<repository_id>` |
 
 When both roles use direct inference, no CPA/GitStore URL, branch, token, OAuth
 identity, fingerprint, or isolation configuration is required. Defender
 persistence also requires no GitStore. The Defender workflow runs only from the
-private fork's default branch and coordinates all configured Folios serially.
+repository's default branch and coordinates all configured Folios serially.
 
 ## Inference for both roles
 
@@ -37,12 +37,12 @@ Set these repository values:
 ```text
 Variable: PROPOSER_INFERENCE_MODE=direct
 Variable: PROPOSER_INFERENCE_PROVIDER=openai-compatible|anthropic
-Variable: PROPOSER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
+Secret:   PROPOSER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   PROPOSER_INFERENCE_API_KEY=<provider API key>
 
 Variable: DEFENDER_INFERENCE_MODE=direct
 Variable: DEFENDER_INFERENCE_PROVIDER=openai-compatible|anthropic
-Variable: DEFENDER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
+Secret:   DEFENDER_INFERENCE_BASE_URL=https://<host>/<optional-prefix>
 Secret:   DEFENDER_INFERENCE_API_KEY=<provider API key>
 ```
 
@@ -85,8 +85,9 @@ scripts/setup-github-defender \
   --repo <owner/private-operator-fork>
 ```
 
-Both helpers validate HTTPS, reject credential-bearing URLs, upload API keys
-through standard input, and set the matching role's inference mode and base URL.
+Both helpers validate HTTPS, reject URL userinfo, query parameters, and
+fragments, upload API keys and base URLs through standard input, and set the
+matching role's inference mode.
 
 ### Optional Tailscale access
 
@@ -307,7 +308,6 @@ Required Defender Variables:
 ```text
 DEFENDER_INFERENCE_MODE             # direct recommended; cliproxy optional
 DEFENDER_INFERENCE_PROVIDER         # openai-compatible (default) or anthropic
-DEFENDER_INFERENCE_BASE_URL         # direct only
 DEFENDER_SIGNER_ADDRESS
 DEFENDER_SCHEDULES_ENABLED          # true only after Defender acceptance
 ```
@@ -317,7 +317,6 @@ Required Proposer Variables:
 ```text
 PROPOSER_INFERENCE_MODE             # direct recommended; cliproxy optional
 PROPOSER_INFERENCE_PROVIDER         # openai-compatible (default) or anthropic
-PROPOSER_INFERENCE_BASE_URL         # direct only
 PROPOSER_SIGNER_ADDRESS
 PROPOSER_SCHEDULES_ENABLED          # optional; enables scheduled Proposer runs
 ```
@@ -325,6 +324,7 @@ PROPOSER_SCHEDULES_ENABLED          # optional; enables scheduled Proposer runs
 Required Defender Secrets:
 
 ```text
+DEFENDER_INFERENCE_BASE_URL         # direct only; variable fallback is migration-only
 DEFENDER_INFERENCE_API_KEY
 DEFENDER_KEYSTORE_JSON_B64
 DEFENDER_KEYSTORE_PASSWORD
@@ -336,6 +336,7 @@ DEFENDER_EMAIL_TO
 Required Proposer Secrets:
 
 ```text
+PROPOSER_INFERENCE_BASE_URL         # direct only; variable fallback is migration-only
 PROPOSER_INFERENCE_API_KEY
 ```
 
