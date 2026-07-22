@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: PROPOSER_INFERENCE_API_KEY=<provider-key> \
-  scripts/setup-github-proposer --inference-base-url <https://host/v1> [options]
+  scripts/setup-github-proposer --inference-base-url <https://host> [options]
 
 Uploads Proposer inference and signer configuration to a private operator fork.
 Direct OpenAI-compatible inference is the recommended path and needs no
@@ -16,7 +16,7 @@ Required:
   --keystore-password-file <path>
 
 Options:
-  --inference-base-url <url>       Direct HTTPS OpenAI-compatible /v1 base URL
+  --inference-base-url <url>       Direct HTTPS OpenAI-compatible service URL
   --use-cliproxy-gitstore          Retain the optional local CLIProxy GitStore mode
   --init-keystore-password         Create password file if missing
   --force-keystore-password        Replace generated password file before creating a new keystore
@@ -202,7 +202,7 @@ echo "Setting dedicated Proposer GitHub configuration${repo:+ for $repo}"
 set_secret PROPOSER_INFERENCE_API_KEY "$inference_api_key"
 set_variable PROPOSER_INFERENCE_MODE "$inference_mode"
 if [[ "$inference_mode" == direct ]]; then
-  set_variable PROPOSER_INFERENCE_BASE_URL "${inference_base_url%/}"
+  set_variable PROPOSER_INFERENCE_BASE_URL "$inference_base_url"
 fi
 set_base64_file_secret PROPOSER_KEYSTORE_JSON_B64 "$keystore"
 set_secret PROPOSER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"

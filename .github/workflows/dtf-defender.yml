@@ -90,6 +90,10 @@ jobs:
                 https://*@*) echo 'DEFENDER_INFERENCE_BASE_URL must not contain credentials' >&2; exit 2 ;;
               esac
               base_url="${DEFENDER_INFERENCE_BASE_URL%/}"
+              case "$base_url" in
+                */v1) ;;
+                *) base_url="$base_url/v1" ;;
+              esac
               ;;
             cliproxy)
               for required in \
@@ -199,7 +203,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          tags: ${{ vars.TAILSCALE_TAGS || 'tag:github-actions' }}
           use-cache: 'false'
 
       - name: Verify direct inference endpoint
