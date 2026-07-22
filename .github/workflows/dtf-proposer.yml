@@ -20,19 +20,14 @@ on:
         required: false
         default: ''
         type: string
-      rpc_url_override:
-        description: Optional RPC URL for this dispatch only
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5
-  DTF_OPERATOR_SOURCE_REVISION: fa307417a62fb6efd86d7b4cb2364e599dca2737
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:5100802631d05a51bed76e59ab83414e33adcc313c9c79b6fb9be949244ce96a
+  DTF_OPERATOR_SOURCE_REVISION: cad0a840f7f99c41a7207471a0088c59063c8d48
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
@@ -55,7 +50,7 @@ jobs:
         env:
           PROPOSER_INFERENCE_MODE: ${{ vars.PROPOSER_INFERENCE_MODE }}
           PROPOSER_INFERENCE_PROVIDER: ${{ vars.PROPOSER_INFERENCE_PROVIDER || 'openai-compatible' }}
-          PROPOSER_INFERENCE_BASE_URL: ${{ vars.PROPOSER_INFERENCE_BASE_URL }}
+          PROPOSER_INFERENCE_BASE_URL: ${{ secrets.PROPOSER_INFERENCE_BASE_URL || vars.PROPOSER_INFERENCE_BASE_URL }}
           PROPOSER_INFERENCE_API_KEY: ${{ secrets.PROPOSER_INFERENCE_API_KEY }}
           DEFENDER_INFERENCE_MODE: ${{ vars.DEFENDER_INFERENCE_MODE }}
           CPA_PROPOSER_GITSTORE_URL: ${{ vars.CPA_PROPOSER_GITSTORE_URL }}
@@ -95,6 +90,7 @@ jobs:
               [[ "$PROPOSER_INFERENCE_BASE_URL" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || { echo 'PROPOSER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' >&2; exit 2; }
               case "$PROPOSER_INFERENCE_BASE_URL" in
                 https://*@*) echo 'PROPOSER_INFERENCE_BASE_URL must not contain credentials' >&2; exit 2 ;;
+                *\?*|*\#*) echo 'PROPOSER_INFERENCE_BASE_URL must not contain query parameters or a fragment' >&2; exit 2 ;;
               esac
               base_url="${PROPOSER_INFERENCE_BASE_URL%/}"
               case "$base_url" in
@@ -152,8 +148,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5'
-          expected_revision='fa307417a62fb6efd86d7b4cb2364e599dca2737'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:5100802631d05a51bed76e59ab83414e33adcc313c9c79b6fb9be949244ce96a'
+          expected_revision='cad0a840f7f99c41a7207471a0088c59063c8d48'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
@@ -293,7 +289,6 @@ jobs:
           RUN_HOURS_INPUT: ${{ inputs.run_hours }}
           MIN_OPEN_AUCTION_VALUE_USD_INPUT: ${{ inputs.min_open_auction_value_usd }}
           COWBOT_MIN_VALUE_USD_INPUT: ${{ inputs.cowbot_min_value_usd }}
-          RPC_URL_OVERRIDE_INPUT: ${{ inputs.rpc_url_override }}
         run: |
           set -euo pipefail
           mkdir -p proposer-data
@@ -325,7 +320,6 @@ jobs:
             -e RUN_HOURS_INPUT \
             -e MIN_OPEN_AUCTION_VALUE_USD_INPUT \
             -e COWBOT_MIN_VALUE_USD_INPUT \
-            -e RPC_URL_OVERRIDE_INPUT \
             -e GITHUB_SERVER_URL \
             -e GITHUB_REPOSITORY \
             -e GITHUB_EVENT_NAME \
@@ -361,9 +355,10 @@ jobs:
             node dist/cli/summarize-github-proposer-artifacts.js /data
 
       - name: Upload proposer artifacts
-        if: always()
+        if: always() && github.event.repository.private == true
         uses: actions/upload-artifact@v7
         with:
           name: dtf-proposer-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
           path: proposer-data
           if-no-files-found: warn
+          retention-days: 14
