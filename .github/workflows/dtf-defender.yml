@@ -21,13 +21,13 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:154b3e62e5ff99fe33961cbba64c7aa83bee129fafe81fe500d6cbb0594db61c
-  DTF_OPERATOR_SOURCE_REVISION: 4f7cff1648552c679ee5b22bb5a35fbcb26cc5f1
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION
+  DTF_OPERATOR_SOURCE_REVISION: RUNTIME_SOURCE_REVISION_PENDING_PUBLICATION
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
   defender:
-    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && (github.event_name == 'workflow_dispatch' || vars.DTF_SCHEDULES_ENABLED == 'true') }}
+    if: ${{ github.repository != 'reserve-protocol/dtf-operator-template' && github.ref_name == github.event.repository.default_branch && (github.event_name == 'workflow_dispatch' || vars.DTF_SCHEDULES_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     concurrency:
       group: dtf-defender-${{ github.repository_id }}
@@ -39,15 +39,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Assert production isolation
+      - name: Resolve Defender inference and isolation mode
+        id: inference
         shell: bash
         env:
+          DEFENDER_INFERENCE_MODE: ${{ vars.DEFENDER_INFERENCE_MODE }}
+          DEFENDER_INFERENCE_BASE_URL: ${{ vars.DEFENDER_INFERENCE_BASE_URL }}
+          DEFENDER_INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
+          PROPOSER_INFERENCE_MODE: ${{ vars.PROPOSER_INFERENCE_MODE }}
           CPA_PROPOSER_GITSTORE_URL: ${{ vars.CPA_PROPOSER_GITSTORE_URL }}
           CPA_PROPOSER_GITSTORE_BRANCH: ${{ vars.CPA_PROPOSER_GITSTORE_BRANCH }}
           CPA_DEFENDER_GITSTORE_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
           CPA_DEFENDER_GITSTORE_BRANCH: ${{ vars.CPA_DEFENDER_GITSTORE_BRANCH }}
           CPA_DEFENDER_GITSTORE_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
-          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
           CPA_PROPOSER_OAUTH_IDENTITY: ${{ vars.CPA_PROPOSER_OAUTH_IDENTITY }}
           CPA_DEFENDER_OAUTH_IDENTITY: ${{ vars.CPA_DEFENDER_OAUTH_IDENTITY }}
           CPA_PROPOSER_OAUTH_FINGERPRINT: ${{ secrets.CPA_PROPOSER_OAUTH_FINGERPRINT }}
@@ -58,89 +62,183 @@ jobs:
           DEFENDER_KEYSTORE_JSON_B64: ${{ secrets.DEFENDER_KEYSTORE_JSON_B64 }}
           DEFENDER_KEYSTORE_PASSWORD: ${{ secrets.DEFENDER_KEYSTORE_PASSWORD }}
           DEFENDER_FOUNDRY_ACCOUNT: ${{ secrets.DEFENDER_FOUNDRY_ACCOUNT }}
-          DEFENDER_INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: |
           set -euo pipefail
           for required in \
-            CPA_PROPOSER_GITSTORE_URL CPA_PROPOSER_GITSTORE_BRANCH \
-            CPA_DEFENDER_GITSTORE_URL CPA_DEFENDER_GITSTORE_BRANCH CPA_DEFENDER_GITSTORE_TOKEN \
-            OPERATOR_STATE_GIT_BRANCH \
-            CPA_PROPOSER_OAUTH_IDENTITY CPA_DEFENDER_OAUTH_IDENTITY \
-            CPA_PROPOSER_OAUTH_FINGERPRINT CPA_DEFENDER_OAUTH_FINGERPRINT CPA_OAUTH_ISOLATION \
+            DEFENDER_INFERENCE_MODE DEFENDER_INFERENCE_API_KEY PROPOSER_INFERENCE_MODE \
             PROPOSER_SIGNER_ADDRESS DEFENDER_SIGNER_ADDRESS \
-            DEFENDER_KEYSTORE_JSON_B64 DEFENDER_KEYSTORE_PASSWORD DEFENDER_FOUNDRY_ACCOUNT DEFENDER_INFERENCE_API_KEY; do
+            DEFENDER_KEYSTORE_JSON_B64 DEFENDER_KEYSTORE_PASSWORD DEFENDER_FOUNDRY_ACCOUNT; do
             [[ -n "${!required:-}" ]] || { echo "$required is required" >&2; exit 2; }
-          done
-          [[ "$CPA_OAUTH_ISOLATION" == 'separate-gitstores-and-logins' ]] || { echo 'CPA_OAUTH_ISOLATION must confirm separate GitStores and OAuth logins' >&2; exit 2; }
-          [[ "$CPA_PROPOSER_OAUTH_IDENTITY" =~ ^[A-Za-z0-9._@+-]+$ && "$CPA_DEFENDER_OAUTH_IDENTITY" =~ ^[A-Za-z0-9._@+-]+$ ]] || { echo 'CPA OAuth identity labels must use safe non-secret characters' >&2; exit 2; }
-          [[ "${CPA_PROPOSER_OAUTH_IDENTITY,,}" != "${CPA_DEFENDER_OAUTH_IDENTITY,,}" ]] || { echo 'Proposer and Defender CPA OAuth identities must differ' >&2; exit 2; }
-          [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ && "$CPA_DEFENDER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]] || { echo 'CPA OAuth identity fingerprints are invalid' >&2; exit 2; }
-          [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" != "$CPA_DEFENDER_OAUTH_FINGERPRINT" ]] || { echo 'Proposer and Defender CPA OAuth account fingerprints must differ' >&2; exit 2; }
-          for branch in "$CPA_PROPOSER_GITSTORE_BRANCH" "$CPA_DEFENDER_GITSTORE_BRANCH" "$OPERATOR_STATE_GIT_BRANCH"; do
-            [[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$branch" != *..* && "$branch" != */ && "$branch" != *//* ]] || { echo 'Git branch names must be safe' >&2; exit 2; }
-          done
-          proposer_repo="${CPA_PROPOSER_GITSTORE_URL,,}"
-          proposer_repo="${proposer_repo%/}"
-          proposer_repo="${proposer_repo%.git}"
-          defender_repo="${CPA_DEFENDER_GITSTORE_URL,,}"
-          defender_repo="${defender_repo%/}"
-          defender_repo="${defender_repo%.git}"
-          [[ "$proposer_repo" != "$defender_repo" ]] || { echo 'Proposer and Defender CPA GitStores must use different repositories' >&2; exit 2; }
-          [[ "$CPA_DEFENDER_GITSTORE_BRANCH" != "$OPERATOR_STATE_GIT_BRANCH" ]] || { echo 'Defender CPA and journal branches must differ' >&2; exit 2; }
-          proposer_domain="$proposer_repo#$CPA_PROPOSER_GITSTORE_BRANCH"
-          defender_domain="$defender_repo#$CPA_DEFENDER_GITSTORE_BRANCH"
-          journal_domain="$defender_repo#$OPERATOR_STATE_GIT_BRANCH"
-          [[ "$proposer_domain" != "$defender_domain" && "$proposer_domain" != "$journal_domain" && "$defender_domain" != "$journal_domain" ]] || { echo 'Proposer CPA, Defender CPA, and Defender journal write domains must be pairwise distinct' >&2; exit 2; }
-          for url in "$CPA_PROPOSER_GITSTORE_URL" "$CPA_DEFENDER_GITSTORE_URL"; do
-            case "$url" in
-              http://*@*|https://*@*) echo 'Git URLs must not contain credentials' >&2; exit 2 ;;
-            esac
           done
           [[ "$PROPOSER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ && "$DEFENDER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]] || { echo 'Proposer and Defender signer variables must be EVM addresses' >&2; exit 2; }
           [[ "${PROPOSER_SIGNER_ADDRESS,,}" != "${DEFENDER_SIGNER_ADDRESS,,}" ]] || { echo 'Proposer and Defender signers must differ' >&2; exit 2; }
+
+          tailscale=false
+          if [[ -n "$TS_OAUTH_CLIENT_ID" || -n "$TS_OAUTH_SECRET" ]]; then
+            [[ -n "$TS_OAUTH_CLIENT_ID" && -n "$TS_OAUTH_SECRET" ]] || { echo 'TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET must be configured together' >&2; exit 2; }
+            tailscale=true
+          fi
+          [[ "$PROPOSER_INFERENCE_MODE" == direct || "$PROPOSER_INFERENCE_MODE" == cliproxy ]] || { echo 'PROPOSER_INFERENCE_MODE must be direct or cliproxy' >&2; exit 2; }
+
+          case "$DEFENDER_INFERENCE_MODE" in
+            direct)
+              [[ -n "$DEFENDER_INFERENCE_BASE_URL" ]] || { echo 'DEFENDER_INFERENCE_BASE_URL is required in direct mode' >&2; exit 2; }
+              [[ "$DEFENDER_INFERENCE_BASE_URL" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || { echo 'DEFENDER_INFERENCE_BASE_URL must be a single-line https URL in direct mode' >&2; exit 2; }
+              case "$DEFENDER_INFERENCE_BASE_URL" in
+                https://*@*) echo 'DEFENDER_INFERENCE_BASE_URL must not contain credentials' >&2; exit 2 ;;
+              esac
+              base_url="${DEFENDER_INFERENCE_BASE_URL%/}"
+              ;;
+            cliproxy)
+              for required in \
+                CPA_DEFENDER_GITSTORE_URL CPA_DEFENDER_GITSTORE_BRANCH CPA_DEFENDER_GITSTORE_TOKEN \
+                CPA_DEFENDER_OAUTH_IDENTITY CPA_DEFENDER_OAUTH_FINGERPRINT; do
+                [[ -n "${!required:-}" ]] || { echo "$required is required for cliproxy mode" >&2; exit 2; }
+              done
+              [[ "$CPA_DEFENDER_OAUTH_IDENTITY" =~ ^[A-Za-z0-9._@+-]+$ ]] || { echo 'CPA OAuth identity labels must use safe non-secret characters' >&2; exit 2; }
+              [[ "$CPA_DEFENDER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]] || { echo 'CPA OAuth identity fingerprints are invalid' >&2; exit 2; }
+              [[ "$CPA_DEFENDER_GITSTORE_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$CPA_DEFENDER_GITSTORE_BRANCH" != *..* && "$CPA_DEFENDER_GITSTORE_BRANCH" != */ && "$CPA_DEFENDER_GITSTORE_BRANCH" != *//* ]] || { echo 'Git branch names must be safe' >&2; exit 2; }
+              case "$CPA_DEFENDER_GITSTORE_URL" in
+                http://*@*|https://*@*) echo 'Git URLs must not contain credentials' >&2; exit 2 ;;
+              esac
+              if [[ "$PROPOSER_INFERENCE_MODE" == cliproxy ]]; then
+                for required in \
+                  CPA_PROPOSER_GITSTORE_URL CPA_PROPOSER_GITSTORE_BRANCH \
+                  CPA_PROPOSER_OAUTH_IDENTITY CPA_PROPOSER_OAUTH_FINGERPRINT CPA_OAUTH_ISOLATION; do
+                  [[ -n "${!required:-}" ]] || { echo "$required is required when both roles use cliproxy" >&2; exit 2; }
+                done
+                [[ "$CPA_OAUTH_ISOLATION" == 'separate-gitstores-and-logins' ]] || { echo 'CPA_OAUTH_ISOLATION must confirm separate GitStores and OAuth logins' >&2; exit 2; }
+                [[ "$CPA_PROPOSER_OAUTH_IDENTITY" =~ ^[A-Za-z0-9._@+-]+$ ]] || { echo 'CPA OAuth identity labels must use safe non-secret characters' >&2; exit 2; }
+                [[ "${CPA_PROPOSER_OAUTH_IDENTITY,,}" != "${CPA_DEFENDER_OAUTH_IDENTITY,,}" ]] || { echo 'Proposer and Defender CPA OAuth identities must differ' >&2; exit 2; }
+                [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]] || { echo 'CPA OAuth identity fingerprints are invalid' >&2; exit 2; }
+                [[ "$CPA_PROPOSER_OAUTH_FINGERPRINT" != "$CPA_DEFENDER_OAUTH_FINGERPRINT" ]] || { echo 'Proposer and Defender CPA OAuth account fingerprints must differ' >&2; exit 2; }
+                [[ "$CPA_PROPOSER_GITSTORE_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$CPA_PROPOSER_GITSTORE_BRANCH" != *..* && "$CPA_PROPOSER_GITSTORE_BRANCH" != */ && "$CPA_PROPOSER_GITSTORE_BRANCH" != *//* ]] || { echo 'Git branch names must be safe' >&2; exit 2; }
+                proposer_repo="${CPA_PROPOSER_GITSTORE_URL,,}"
+                proposer_repo="${proposer_repo%/}"
+                proposer_repo="${proposer_repo%.git}"
+                defender_repo="${CPA_DEFENDER_GITSTORE_URL,,}"
+                defender_repo="${defender_repo%/}"
+                defender_repo="${defender_repo%.git}"
+                [[ "$proposer_repo" != "$defender_repo" ]] || { echo 'Proposer and Defender CPA GitStores must use different repositories' >&2; exit 2; }
+              fi
+              base_url='http://cliproxy:8317/v1'
+              ;;
+            *)
+              echo 'DEFENDER_INFERENCE_MODE must be direct or cliproxy' >&2
+              exit 2
+              ;;
+          esac
+
+          echo "mode=$DEFENDER_INFERENCE_MODE" >> "$GITHUB_OUTPUT"
+          echo "base_url=$base_url" >> "$GITHUB_OUTPUT"
+          echo "tailscale=$tailscale" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Defender operator state
+        id: defender_state_restore
+        uses: actions/cache/restore@v6
+        with:
+          path: defender-data/operator-state
+          key: dtf-defender-state-v1-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dtf-defender-state-v1-${{ github.repository_id }}-
 
       - name: Pull and verify published operator
         id: pull_image
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:154b3e62e5ff99fe33961cbba64c7aa83bee129fafe81fe500d6cbb0594db61c'
-          expected_revision='4f7cff1648552c679ee5b22bb5a35fbcb26cc5f1'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION'
+          expected_revision='RUNTIME_SOURCE_REVISION_PENDING_PUBLICATION'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
+          case "$expected_image:$expected_revision" in
+            *PENDING_PUBLICATION*)
+              echo 'Publish the cache-authoritative runtime image, then replace both runtime publication placeholders before enabling this workflow.' >&2
+              exit 2
+              ;;
+          esac
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
           platform="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{.Os}}/{{.Architecture}}')"
           revision="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
           [[ "$platform" == 'linux/amd64' ]] || { echo "operator image must be linux/amd64; got $platform" >&2; exit 2; }
-          [[ "$revision" == "$DTF_OPERATOR_SOURCE_REVISION" ]] || { echo 'operator OCI revision does not match the reviewed source revision' >&2; exit 2; }
-          echo "operator_image=$DTF_OPERATOR_IMAGE"
-          echo "operator_source_revision=$DTF_OPERATOR_SOURCE_REVISION"
+          [[ "$revision" == "$expected_revision" ]] || { echo 'operator OCI revision does not match the reviewed source revision' >&2; exit 2; }
+          echo "operator_image=$expected_image"
+          echo "operator_source_revision=$expected_revision"
           echo "operator_platform=$platform"
 
-      - name: Start Defender GitStore inference sidecar
+      - name: Import legacy Git journal on first cache generation
+        if: ${{ steps.defender_state_restore.outputs.cache-matched-key == '' }}
+        shell: bash
+        env:
+          OPERATOR_STATE_GIT_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
+          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
+          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p defender-data
+          configured=0
+          for value in "$OPERATOR_STATE_GIT_URL" "$OPERATOR_STATE_GIT_BRANCH" "$OPERATOR_STATE_GIT_TOKEN"; do
+            [[ -z "$value" ]] || configured=$((configured + 1))
+          done
+          if [[ "$configured" == 0 ]]; then
+            echo 'legacy_journal_import=fresh-cache'
+            exit 0
+          fi
+          [[ "$configured" == 3 ]] || { echo 'Legacy journal import requires CPA_DEFENDER_GITSTORE_URL, OPERATOR_STATE_GIT_BRANCH, and CPA_DEFENDER_GITSTORE_TOKEN together' >&2; exit 2; }
+          docker run --rm \
+            --platform linux/amd64 \
+            -e OPERATOR_STATE_MODE=git-authoritative \
+            -e OPERATOR_STATE_ROOT=/data \
+            -e OPERATOR_STATE_GIT_URL \
+            -e OPERATOR_STATE_GIT_BRANCH \
+            -e OPERATOR_STATE_GIT_TOKEN \
+            -v "$PWD/defender-data:/data" \
+            "$DTF_OPERATOR_IMAGE" \
+            node dist/cli/run-defender-state.js restore
+          echo 'legacy_journal_import=restored-read-only'
+
+      - name: Connect Tailscale for direct inference
+        if: ${{ steps.inference.outputs.mode == 'direct' && steps.inference.outputs.tailscale == 'true' }}
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          use-cache: 'false'
+
+      - name: Verify direct inference endpoint
+        if: ${{ steps.inference.outputs.mode == 'direct' }}
+        shell: bash
+        env:
+          INFERENCE_BASE_URL: ${{ steps.inference.outputs.base_url }}
+          INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl -fsS -o /dev/null \
+            -H "Authorization: Bearer $INFERENCE_API_KEY" \
+            "$INFERENCE_BASE_URL/models"
+
+      - name: Start optional Defender GitStore inference sidecar
+        if: ${{ steps.inference.outputs.mode == 'cliproxy' }}
         shell: bash
         env:
           GITSTORE_GIT_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
           GITSTORE_GIT_BRANCH: ${{ vars.CPA_DEFENDER_GITSTORE_BRANCH }}
           GITSTORE_GIT_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
           GITSTORE_GIT_USERNAME: ${{ vars.CPA_GITSTORE_GIT_USERNAME }}
-          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
           MANAGEMENT_PASSWORD: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           repo_slug="${GITSTORE_GIT_URL#https://github.com/}"
           repo_slug="${repo_slug%.git}"
-          for branch in "$GITSTORE_GIT_BRANCH" "$OPERATOR_STATE_GIT_BRANCH"; do
-            api_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-              -H "Authorization: Bearer $GITSTORE_GIT_TOKEN" \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "https://api.github.com/repos/$repo_slug/branches/$branch" || true)"
-            if [[ "$api_status" != 200 ]]; then
-              echo "Defender GitStore token branch check returned GitHub API HTTP $api_status" >&2
-              exit 2
-            fi
-          done
+          api_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GITSTORE_GIT_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$repo_slug/branches/$GITSTORE_GIT_BRANCH" || true)"
+          [[ "$api_status" == 200 ]] || { echo "Defender GitStore token branch check returned GitHub API HTTP $api_status" >&2; exit 2; }
           askpass="$(mktemp)"
           trap 'rm -f "$askpass"' EXIT
           cat > "$askpass" <<'EOF'
@@ -152,12 +250,10 @@ jobs:
           esac
           EOF
           chmod 700 "$askpass"
-          for branch in "$GITSTORE_GIT_BRANCH" "$OPERATOR_STATE_GIT_BRANCH"; do
-            if ! GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$GITSTORE_GIT_URL" "refs/heads/$branch" >/dev/null 2>&1; then
-              echo 'Defender GitStore token cannot read a configured repository branch' >&2
-              exit 2
-            fi
-          done
+          if ! GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$GITSTORE_GIT_URL" "refs/heads/$GITSTORE_GIT_BRANCH" >/dev/null 2>&1; then
+            echo 'Defender GitStore token cannot read the configured repository branch' >&2
+            exit 2
+          fi
           rm -f "$askpass"
           trap - EXIT
           mkdir -m 700 -p cliproxy-gitstore
@@ -185,7 +281,8 @@ jobs:
           echo "Defender CLIProxyAPI did not become ready; container state: $state" >&2
           exit 2
 
-      - name: Verify Defender OAuth authority
+      - name: Verify optional Defender OAuth authority
+        if: ${{ steps.inference.outputs.mode == 'cliproxy' }}
         shell: bash
         env:
           MANAGEMENT_PASSWORD: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
@@ -195,8 +292,11 @@ jobs:
           [[ "$auth_files" != *'"files":[]'* ]] || { echo 'Defender CPA GitStore contains no OAuth records' >&2; exit 2; }
 
       - name: Run serial multi-Folio Defender coordinator
+        id: defender_runtime
         shell: bash
         env:
+          DEFENDER_INFERENCE_MODE: ${{ steps.inference.outputs.mode }}
+          INFERENCE_BASE_URL: ${{ steps.inference.outputs.base_url }}
           INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
           RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
@@ -212,18 +312,22 @@ jobs:
           INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS: ${{ vars.INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS }}
           DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS: ${{ inputs.proposal_log_chunk_blocks || vars.DEFENDER_PROPOSAL_LOG_CHUNK_BLOCKS }}
           DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS: ${{ inputs.proposal_log_chunk_delay_ms || vars.DEFENDER_PROPOSAL_LOG_CHUNK_DELAY_MS }}
-          OPERATOR_STATE_GIT_URL: ${{ vars.CPA_DEFENDER_GITSTORE_URL }}
-          OPERATOR_STATE_GIT_BRANCH: ${{ vars.OPERATOR_STATE_GIT_BRANCH }}
-          OPERATOR_STATE_GIT_TOKEN: ${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p defender-data
+          if [[ "$DEFENDER_INFERENCE_MODE" == direct ]]; then
+            network_args=(--network host)
+          else
+            network_args=(--network dtf-inference)
+          fi
           docker run --rm \
             --platform linux/amd64 \
-            --network dtf-inference \
+            "${network_args[@]}" \
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
             -e OUT_ROOT=/data \
-            -e INFERENCE_BASE_URL=http://cliproxy:8317/v1 \
+            -e OPERATOR_STATE_ROOT=/data \
+            -e OPERATOR_STATE_MODE=cache-authoritative \
+            -e INFERENCE_BASE_URL \
             -e INFERENCE_API_KEY \
             -e RPC_URL \
             -e MAINNET_RPC_URL \
@@ -244,16 +348,45 @@ jobs:
             -e GITHUB_EVENT_NAME \
             -e GITHUB_RUN_ID \
             -e GITHUB_RUN_ATTEMPT \
-            -e OPERATOR_STATE_GIT_URL \
-            -e OPERATOR_STATE_GIT_BRANCH \
-            -e OPERATOR_STATE_GIT_TOKEN \
-            -e OPERATOR_STATE_MODE=git-authoritative \
             -v "$PWD/.github/dtf-operator.yml:/config/dtf-operator.yml:ro" \
             -v "$PWD/defender-data:/data" \
             "$DTF_OPERATOR_IMAGE" \
             node dist/cli/run-github-defender.js
 
-      - name: Stop sidecar and remove local state
+      - name: Normalize Defender state ownership
+        if: ${{ always() && steps.defender_runtime.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d defender-data ]]; then
+            sudo chown -R "$(id -u):$(id -g)" defender-data
+          fi
+          if [[ -d defender-data/operator-state ]]; then
+            chmod -R u+rwX,go-rwx defender-data/operator-state
+          fi
+
+      - name: Validate Defender state for cache save
+        id: validate_defender_state
+        if: ${{ always() && steps.pull_image.outcome == 'success' && steps.defender_runtime.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --platform linux/amd64 \
+            -e OPERATOR_STATE_MODE=cache-authoritative \
+            -e OPERATOR_STATE_ROOT=/data \
+            -v "$PWD/defender-data:/data:ro" \
+            "$DTF_OPERATOR_IMAGE" \
+            node dist/cli/run-defender-state.js validate
+
+      - name: Save Defender operator state
+        if: ${{ always() && steps.validate_defender_state.outcome == 'success' }}
+        uses: actions/cache/save@v6
+        with:
+          path: defender-data/operator-state
+          key: ${{ steps.defender_state_restore.outputs.cache-primary-key }}
+
+      - name: Stop optional sidecar and remove local state
         if: always()
         shell: bash
         run: |

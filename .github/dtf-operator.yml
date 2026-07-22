@@ -27,6 +27,9 @@ proposer:
   minOpenAuctionValueUsd:
   cowbotMinValueUsd:
   allowSyntheticSignalStrategy: false
+  # Configure the endpoint with PROPOSER_INFERENCE_MODE /
+  # PROPOSER_INFERENCE_BASE_URL and PROPOSER_INFERENCE_API_KEY. Direct HTTPS
+  # mode is recommended and needs no GitStore.
   inference:
     model: gpt-5.5
     reasoningEffort: medium
@@ -92,6 +95,9 @@ defender:
   # The production workflow requires a dedicated Defender signer and fails its
   # isolation preflight when signer secrets are missing.
   alertOnlyWithoutSigner: false
+  # Model settings are public. Configure the endpoint with the
+  # DEFENDER_INFERENCE_MODE / DEFENDER_INFERENCE_BASE_URL repository variables
+  # and DEFENDER_INFERENCE_API_KEY secret; direct HTTPS mode needs no GitStore.
   inference:
     model: gpt-5.5
     reasoningEffort: medium

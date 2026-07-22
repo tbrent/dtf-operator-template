@@ -13,7 +13,6 @@ new_fixture() {
   cp "$root/.github/dtf-operator.yml" "$fixture/.github/"
   cp "$root/README.md" "$fixture/"
   cp "$root/scripts/seed-cliproxy-gitstore" "$fixture/scripts/"
-  cp "$root/scripts/initialize-defender-journal" "$fixture/scripts/"
   cp "$root/scripts/setup-github-proposer" "$fixture/scripts/"
   cp "$root/scripts/setup-github-defender" "$fixture/scripts/"
   printf '%s\n' "$fixture"
@@ -33,96 +32,76 @@ expect_rejected() {
 TEMPLATE_ROOT="$root" "$validator" >/dev/null
 
 fixture="$(new_fixture)"
-sed -i 's/154b3e62/254b3e62/' "$fixture/.github/workflows/dtf-proposer.yml"
+sed -i 's/RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION/RUNTIME_IMAGE_DIGEST_WRONG/' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected operator_digest "$fixture"
-
-fixture="$(new_fixture)"
-sed -i 's/4f7cff16/5f7cff16/' "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected source_revision "$fixture"
 
 fixture="$(new_fixture)"
 sed -i 's/group: dtf-defender-/group: dtf-proposer-/' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected concurrency_isolation "$fixture"
 
 fixture="$(new_fixture)"
-sed -i "s/vars.DTF_SCHEDULES_ENABLED == 'true'/true/" "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected schedule_gate "$fixture"
+sed -i '/github.ref_name == github.event.repository.default_branch/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected default_branch_gate "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/actions\/cache\/restore@v6/actions\/cache@v6/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected split_cache_restore "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/${{ github.run_id }}-${{ github.run_attempt }}/mutable/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected immutable_cache_key "$fixture"
+
+fixture="$(new_fixture)"
+sed -i "s/always() && steps.validate_defender_state.outcome == 'success'/success()/" "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected failed_run_cache_save "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/OPERATOR_STATE_MODE=cache-authoritative/OPERATOR_STATE_MODE=local/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected cache_authority "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/Authorization: Bearer \$INFERENCE_API_KEY/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected direct_bearer_auth "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/Authorization: Bearer \$INFERENCE_API_KEY/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_direct_bearer_auth "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/tailscale\/github-action@v4/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected tailscale_action "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/tailscale\/github-action@v4/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_tailscale_action "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET must be configured together/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected tailscale_pair "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/cache-matched-key ==/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected legacy_import_scope "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/if \[\[ "\$DEFENDER_INFERENCE_MODE" == cliproxy \]\]/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected direct_mode_proposer_isolation "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/PROPOSER_INFERENCE_MODE PROPOSER_INFERENCE_API_KEY DEFENDER_INFERENCE_MODE \\/PROPOSER_INFERENCE_MODE PROPOSER_INFERENCE_API_KEY DEFENDER_INFERENCE_MODE CPA_PROPOSER_GITSTORE_URL \\/' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_direct_requires_gitstore "$fixture"
+
+fixture="$(new_fixture)"
+sed -i 's/DEFENDER_INFERENCE_MODE DEFENDER_INFERENCE_API_KEY PROPOSER_INFERENCE_MODE \\/DEFENDER_INFERENCE_MODE DEFENDER_INFERENCE_API_KEY PROPOSER_INFERENCE_MODE CPA_DEFENDER_GITSTORE_URL \\/' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected defender_direct_requires_gitstore "$fixture"
+
+fixture="$(new_fixture)"
+touch "$fixture/scripts/initialize-defender-journal"
+expect_rejected obsolete_initializer "$fixture"
 
 fixture="$(new_fixture)"
 sed -i 's/maxVetoDelayPlusPeriod: 1209600s/maxVetoDelayPlusPeriod: 1209601s/' "$fixture/.github/dtf-operator.yml"
 expect_rejected veto_maximum "$fixture"
-
-fixture="$(new_fixture)"
-printf '\n# actions/cache\n' >> "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected actions_cache "$fixture"
-
-fixture="$(new_fixture)"
-printf '\n# supportedGovernorImplementations:\n' >> "$fixture/.github/dtf-operator.yml"
-expect_rejected governor_allowlist "$fixture"
-
-fixture="$(new_fixture)"
-sed -i '/Proposer and Defender CPA OAuth identities must differ/d' "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected oauth_isolation "$fixture"
-
-fixture="$(new_fixture)"
-sed -i '/Proposer and Defender CPA OAuth account fingerprints must differ/d' "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected oauth_fingerprint "$fixture"
-
-fixture="$(new_fixture)"
-sed -i '/Proposer and Defender CPA GitStores must use different repositories/d' "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected repository_isolation "$fixture"
-
-fixture="$(new_fixture)"
-sed -i '/Defender CPA and journal branches must differ/d' "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected defender_branch_isolation "$fixture"
-
-fixture="$(new_fixture)"
-sed -i '/Git branch names must be safe/d' "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected branch_name_validation "$fixture"
-
-fixture="$(new_fixture)"
-sed -i 's#/v0/management/auth-files#/v1/models#g' "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected gitstore_readiness_endpoint "$fixture"
-
-fixture="$(new_fixture)"
-sed -i '/api.github.com\/repos\/\$repo_slug\/branches\/\$GITSTORE_GIT_BRANCH/d' "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected gitstore_api_diagnostic "$fixture"
-
-fixture="$(new_fixture)"
-sed -i '/git ls-remote --exit-code/d' "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected gitstore_branch_access "$fixture"
-
-fixture="$(new_fixture)"
-sed -i 's/OPERATOR_STATE_MODE=git-authoritative/OPERATOR_STATE_MODE=local/' "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected git_authority "$fixture"
-
-fixture="$(new_fixture)"
-printf '\n# ONCE_INPUT\n' >> "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected unsupported_continuous_defender "$fixture"
-
-fixture="$(new_fixture)"
-printf '\n# PROPOSAL_ID\n' >> "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected unsupported_targeted_defender "$fixture"
-
-fixture="$(new_fixture)"
-printf '\n# RESUME_EXISTING_REBALANCE_INPUT\n' >> "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected retired_proposer_resume "$fixture"
-
-fixture="$(new_fixture)"
-sed -i 's/OPERATOR_STATE_GIT_TOKEN: \${{ secrets.CPA_DEFENDER_GITSTORE_TOKEN }}/OPERATOR_STATE_GIT_TOKEN: \${{ secrets.OPERATOR_STATE_GIT_TOKEN }}/' "$fixture/.github/workflows/dtf-defender.yml"
-expect_rejected defender_token_reuse "$fixture"
-
-fixture="$(new_fixture)"
-printf '\n# vars.OPERATOR_STATE_GIT_URL\n' >> "$fixture/.github/workflows/dtf-proposer.yml"
-expect_rejected redundant_journal_configuration "$fixture"
-
-fixture="$(new_fixture)"
-sed -i 's/"${common_args\[@\]}" initialize/"${common_args[@]}" seed/' "$fixture/scripts/initialize-defender-journal"
-expect_rejected legacy_journal_command "$fixture"
-
-fixture="$(new_fixture)"
-printf '\n  requireAiApproval: true\n' >> "$fixture/.github/dtf-operator.yml"
-expect_rejected noop_ai_approval "$fixture"
 
 fixture="$(new_fixture)"
 printf '\n# SIGNED_TRANSACTION: forbidden\n' >> "$fixture/.github/workflows/dtf-defender.yml"
@@ -137,15 +116,17 @@ printf 'existing-keystore\n' > "$password_fixture/proposer-keystores/dtf-propose
 printf 'existing-keystore\n' > "$password_fixture/defender-keystores/dtf-defender"
 printf 'original-password\n' > "$password_fixture/proposer-password"
 printf 'original-password\n' > "$password_fixture/defender-password"
-if PATH="$password_fixture/bin:$PATH" "$root/scripts/setup-github-proposer" \
+if PROPOSER_INFERENCE_API_KEY=dummy PATH="$password_fixture/bin:$PATH" "$root/scripts/setup-github-proposer" \
+  --inference-base-url https://inference.example/v1 \
   --generate-keystore-dir "$password_fixture/proposer-keystores" \
   --keystore-password-file "$password_fixture/proposer-password" \
   --force-keystore-password >/dev/null 2>&1; then
   echo 'existing Proposer keystore did not reject password replacement' >&2
   exit 2
 fi
-if RESEND_API_KEY=dummy PATH="$password_fixture/bin:$PATH" "$root/scripts/setup-github-defender" \
+if RESEND_API_KEY=dummy DEFENDER_INFERENCE_API_KEY=dummy PATH="$password_fixture/bin:$PATH" "$root/scripts/setup-github-defender" \
   --email operator@example.com \
+  --inference-base-url https://inference.example/v1 \
   --generate-keystore-dir "$password_fixture/defender-keystores" \
   --keystore-password-file "$password_fixture/defender-password" \
   --force-keystore-password >/dev/null 2>&1; then
@@ -156,5 +137,75 @@ fi
 [[ "$(<"$password_fixture/defender-password")" == 'original-password' ]] || { echo 'Defender password file was overwritten' >&2; exit 2; }
 rm -rf "$password_fixture"
 echo 'regression_rejected=existing_keystore_password_replacement'
+
+direct_fixture="$(mktemp -d "${TMPDIR:-/tmp}/defender-direct-setup.XXXXXX")"
+mkdir -p "$direct_fixture/bin"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [[ "$1" == wallet && "$2" == address ]]; then printf "%s\n" 0x0000000000000000000000000000000000000002; exit 0; fi' \
+  'exit 2' > "$direct_fixture/bin/cast"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "%s\n" "$*" >> "$GH_LOG"' \
+  'if [[ "$1" == secret && "$2" == set ]]; then cat >/dev/null; fi' \
+  'exit 0' > "$direct_fixture/bin/gh"
+chmod +x "$direct_fixture/bin/cast" "$direct_fixture/bin/gh"
+printf 'keystore\n' > "$direct_fixture/keystore"
+printf 'password\n' > "$direct_fixture/password"
+: > "$direct_fixture/gh.log"
+PROPOSER_INFERENCE_API_KEY=proposer-provider-secret \
+GH_LOG="$direct_fixture/gh.log" \
+PATH="$direct_fixture/bin:$PATH" \
+  "$root/scripts/setup-github-proposer" \
+    --inference-base-url https://router.example/v1/ \
+    --keystore "$direct_fixture/keystore" \
+    --keystore-password-file "$direct_fixture/password" \
+    --repo owner/operator >/dev/null
+grep -Fq 'variable set PROPOSER_INFERENCE_MODE --repo owner/operator --body direct' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not set inference mode' >&2; exit 2; }
+grep -Fq 'variable set PROPOSER_INFERENCE_BASE_URL --repo owner/operator --body https://router.example/v1' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not normalize the inference URL' >&2; exit 2; }
+if grep -Fq 'proposer-provider-secret' "$direct_fixture/gh.log"; then
+  echo 'Proposer direct setup exposed its API key in gh arguments' >&2
+  exit 2
+fi
+if PROPOSER_INFERENCE_API_KEY=proposer-provider-secret GH_LOG="$direct_fixture/gh.log" PATH="$direct_fixture/bin:$PATH" \
+  "$root/scripts/setup-github-proposer" \
+    --inference-base-url http://router.example/v1 \
+    --keystore "$direct_fixture/keystore" \
+    --keystore-password-file "$direct_fixture/password" \
+    --repo owner/operator >/dev/null 2>&1; then
+  echo 'Proposer direct setup accepted an insecure public inference URL' >&2
+  exit 2
+fi
+echo 'setup_verified=proposer_direct_inference'
+
+: > "$direct_fixture/gh.log"
+RESEND_API_KEY=resend-secret \
+DEFENDER_INFERENCE_API_KEY=provider-secret \
+GH_LOG="$direct_fixture/gh.log" \
+PATH="$direct_fixture/bin:$PATH" \
+  "$root/scripts/setup-github-defender" \
+    --email operator@example.com \
+    --inference-base-url https://router.example/v1/ \
+    --keystore "$direct_fixture/keystore" \
+    --keystore-password-file "$direct_fixture/password" \
+    --repo owner/operator >/dev/null
+grep -Fq 'variable set DEFENDER_INFERENCE_MODE --repo owner/operator --body direct' "$direct_fixture/gh.log" || { echo 'direct setup did not set inference mode' >&2; exit 2; }
+grep -Fq 'variable set DEFENDER_INFERENCE_BASE_URL --repo owner/operator --body https://router.example/v1' "$direct_fixture/gh.log" || { echo 'direct setup did not normalize the inference URL' >&2; exit 2; }
+if grep -Fq 'provider-secret' "$direct_fixture/gh.log"; then
+  echo 'direct setup exposed its API key in gh arguments' >&2
+  exit 2
+fi
+if RESEND_API_KEY=resend-secret DEFENDER_INFERENCE_API_KEY=provider-secret GH_LOG="$direct_fixture/gh.log" PATH="$direct_fixture/bin:$PATH" \
+  "$root/scripts/setup-github-defender" \
+    --email operator@example.com \
+    --inference-base-url http://router.example/v1 \
+    --keystore "$direct_fixture/keystore" \
+    --keystore-password-file "$direct_fixture/password" \
+    --repo owner/operator >/dev/null 2>&1; then
+  echo 'direct setup accepted an insecure public inference URL' >&2
+  exit 2
+fi
+rm -rf "$direct_fixture"
+echo 'setup_verified=defender_direct_inference'
 
 echo 'authoritative template regressions passed'

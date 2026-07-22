@@ -3,17 +3,21 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/setup-github-proposer [options]
+Usage: PROPOSER_INFERENCE_API_KEY=<provider-key> \
+  scripts/setup-github-proposer --inference-base-url <https://host/v1> [options]
 
-Uploads a dedicated Proposer gateway key, signer secrets, account name, and
-signer-address variable to a private operator fork. CPA OAuth is initialized
-separately with scripts/seed-cliproxy-gitstore using the Proposer login.
+Uploads Proposer inference and signer configuration to a private operator fork.
+Direct OpenAI-compatible inference is the recommended path and needs no
+GitStore. Use --use-cliproxy-gitstore only for an existing CLIProxy OAuth
+deployment.
 
 Required:
   --keystore <path> or --generate-keystore-dir <dir>
   --keystore-password-file <path>
 
 Options:
+  --inference-base-url <url>       Direct HTTPS OpenAI-compatible /v1 base URL
+  --use-cliproxy-gitstore          Retain the optional local CLIProxy GitStore mode
   --init-keystore-password         Create password file if missing
   --force-keystore-password        Replace generated password file before creating a new keystore
   --import-private-key-env <name>  Import 0x private key from env when generating
@@ -21,8 +25,8 @@ Options:
   --repo <owner/repo>              Target GitHub repository
   -h, --help                       Show this help
 
-Set PROPOSER_INFERENCE_API_KEY in the environment to preserve an existing
-gateway key. When unset, the helper generates a new key without printing it.
+Direct mode requires PROPOSER_INFERENCE_API_KEY in the environment. CLIProxy
+mode preserves an existing value or generates a gateway key without printing it.
 EOF
 }
 
@@ -88,6 +92,8 @@ get_variable() {
 }
 
 keystore=""
+inference_base_url=""
+use_cliproxy_gitstore=0
 keystore_password_file=""
 init_keystore_password=0
 force_keystore_password=0
@@ -98,6 +104,8 @@ repo=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --inference-base-url) inference_base_url="${2:-}"; shift 2 ;;
+    --use-cliproxy-gitstore) use_cliproxy_gitstore=1; shift ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
     --init-keystore-password) init_keystore_password=1; shift ;;
@@ -114,12 +122,22 @@ done
 [[ -n "$keystore_password_file" ]] || die "--keystore-password-file is required"
 [[ -n "$keystore" || -n "$generate_keystore_dir" ]] || die "--keystore or --generate-keystore-dir is required"
 [[ -z "$keystore" || -z "$generate_keystore_dir" ]] || die "choose either --keystore or --generate-keystore-dir, not both"
+[[ -n "$inference_base_url" || "$use_cliproxy_gitstore" == 1 ]] || die "--inference-base-url or --use-cliproxy-gitstore is required"
+[[ -z "$inference_base_url" || "$use_cliproxy_gitstore" != 1 ]] || die "choose direct inference or --use-cliproxy-gitstore, not both"
 [[ -z "$import_private_key_env" || -n "$generate_keystore_dir" ]] || die "--import-private-key-env requires --generate-keystore-dir"
 [[ "$foundry_account" =~ ^[A-Za-z0-9._-]+$ ]] || die "--foundry-account must match [A-Za-z0-9._-]+"
 [[ "$foundry_account" != -* && "$foundry_account" != *..* && "$foundry_account" != */* ]] || die "--foundry-account must not contain path traversal"
 
 require_command cast
 require_command gh
+
+if [[ -n "$inference_base_url" ]]; then
+  [[ "$inference_base_url" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || die "--inference-base-url must be a single-line https URL"
+  case "$inference_base_url" in
+    https://*@*) die "--inference-base-url must not contain credentials" ;;
+  esac
+  [[ -n "${PROPOSER_INFERENCE_API_KEY:-}" ]] || die "PROPOSER_INFERENCE_API_KEY is required for direct inference"
+fi
 
 if [[ -n "$generate_keystore_dir" && "$force_keystore_password" == 1 && -e "${generate_keystore_dir%/}/$foundry_account" ]]; then
   die "refusing to replace the password for an existing generated keystore; create a new keystore path instead"
@@ -172,17 +190,31 @@ other_signer="$(get_variable DEFENDER_SIGNER_ADDRESS)"
 if [[ -n "$other_signer" && "${address,,}" == "${other_signer,,}" ]]; then
   die "Proposer and Defender signer addresses must differ"
 fi
-inference_api_key="${PROPOSER_INFERENCE_API_KEY:-$(random_password)}"
+if [[ -n "$inference_base_url" ]]; then
+  inference_mode=direct
+  inference_api_key="$PROPOSER_INFERENCE_API_KEY"
+else
+  inference_mode=cliproxy
+  inference_api_key="${PROPOSER_INFERENCE_API_KEY:-$(random_password)}"
+fi
 
 echo "Setting dedicated Proposer GitHub configuration${repo:+ for $repo}"
 set_secret PROPOSER_INFERENCE_API_KEY "$inference_api_key"
+set_variable PROPOSER_INFERENCE_MODE "$inference_mode"
+if [[ "$inference_mode" == direct ]]; then
+  set_variable PROPOSER_INFERENCE_BASE_URL "${inference_base_url%/}"
+fi
 set_base64_file_secret PROPOSER_KEYSTORE_JSON_B64 "$keystore"
 set_secret PROPOSER_KEYSTORE_PASSWORD "$(tr -d '\r\n' < "$keystore_password_file")"
 set_secret PROPOSER_FOUNDRY_ACCOUNT "$foundry_account"
 set_variable PROPOSER_SIGNER_ADDRESS "$address"
 unset inference_api_key
 
-echo "configured=proposer-gateway,proposer-signer"
+echo "configured=proposer-$inference_mode-inference,proposer-signer"
 echo "foundry_account=$foundry_account"
 echo "signer_address=$address"
-echo "next_step=seed the Proposer CPA repository, then seed Defender with a different OAuth login in a different private repository"
+if [[ "$inference_mode" == direct ]]; then
+  echo "next_step=configure Defender direct inference and run safe manual dispatches"
+else
+  echo "next_step=seed the optional Proposer CPA GitStore, then configure Defender inference"
+fi
