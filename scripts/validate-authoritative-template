@@ -88,7 +88,7 @@ require_contains "$defender" "steps.inference.outputs.mode == 'cliproxy'" 'CLIPr
 require_contains "$defender" "steps.inference.outputs.mode == 'direct'" 'Direct endpoint path is not conditional'
 require_contains "$defender" 'tailscale/github-action@v4' 'optional Tailscale connectivity is missing'
 require_contains "$defender" 'TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET must be configured together' 'Tailscale Secrets are not pair-validated'
-require_contains "$defender" 'tags: tag:ci' 'Tailscale workflow tag is not fixed and documented'
+require_contains "$defender" 'TAILSCALE_TAGS' 'Tailscale workflow tag is not configurable'
 require_contains "$defender" 'network_args=(--network host)' 'Direct Tailscale endpoint is not exposed to the Defender container'
 require_contains "$defender" 'if [[ "$PROPOSER_INFERENCE_MODE" == cliproxy ]]' 'Defender still unconditionally requires Proposer CPA configuration'
 
