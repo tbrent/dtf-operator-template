@@ -53,12 +53,12 @@ for workflow in "$proposer" "$defender"; do
   require_contains "$workflow" "expected_revision='$expected_revision'" "workflow does not assert its exact revision"
   require_contains "$workflow" 'docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"' "operator pull must select linux/amd64 in $workflow"
   require_contains "$workflow" 'org.opencontainers.image.revision' "operator OCI revision is not asserted in $workflow"
-  require_contains "$workflow" "vars.DTF_SCHEDULES_ENABLED == 'true'" "scheduled runs are not repository-variable gated in $workflow"
   require_contains "$workflow" 'persist-credentials: false' "configuration checkout must not persist the GitHub token in $workflow"
   require_contains "$workflow" 'Proposer and Defender signers must differ' "signer isolation is not asserted in $workflow"
 done
 
 require_contains "$defender" "github.ref_name == github.event.repository.default_branch" 'Defender must run only on the default branch'
+require_contains "$defender" "vars.DEFENDER_SCHEDULES_ENABLED == 'true'" 'Defender schedule is not independently gated'
 require_contains "$defender" 'group: dtf-defender-${{ github.repository_id }}' 'missing dedicated Defender concurrency group'
 require_contains "$defender" 'cancel-in-progress: false' 'Defender concurrency must remain serial without cancellation'
 require_contains "$defender" 'actions/cache/restore@v6' 'Defender must use the split cache restore action'
@@ -96,9 +96,13 @@ require_contains "$defender" 'if [[ "$PROPOSER_INFERENCE_MODE" == cliproxy ]]' '
 require_contains "$defender" 'Import legacy Git journal on first cache generation' 'one-time legacy journal import is missing'
 require_contains "$defender" "steps.defender_state_restore.outputs.cache-matched-key == ''" 'legacy import must run only on a cache miss'
 require_contains "$defender" 'node dist/cli/run-defender-state.js restore' 'legacy import must use the normalized state restore CLI'
-require_contains "$defender" 'Legacy journal import requires CPA_DEFENDER_GITSTORE_URL, OPERATOR_STATE_GIT_BRANCH, and CPA_DEFENDER_GITSTORE_TOKEN together' 'partial legacy migration configuration is not rejected'
+require_contains "$defender" 'if [[ -z "$OPERATOR_STATE_GIT_BRANCH" ]]' 'CLIProxy inference state is not isolated from legacy journal migration'
+require_contains "$defender" 'Legacy journal import requires CPA_DEFENDER_GITSTORE_URL and CPA_DEFENDER_GITSTORE_TOKEN when OPERATOR_STATE_GIT_BRANCH is configured' 'partial legacy migration configuration is not rejected'
 
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE' 'Proposer inference mode variable is missing'
+require_contains "$proposer" "github.ref_name == github.event.repository.default_branch" 'Proposer must run only on the default branch'
+require_contains "$proposer" "vars.PROPOSER_SCHEDULES_ENABLED == 'true'" 'Proposer schedule is not independently gated'
+require_contains "$proposer" "vars.PROPOSER_SCHEDULE_MODE || 'dry-run'" 'Scheduled Proposer does not default safely to dry-run'
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE PROPOSER_INFERENCE_API_KEY DEFENDER_INFERENCE_MODE \' 'Proposer direct mode still has GitStore fields in its common required contract'
 require_contains "$proposer" 'PROPOSER_INFERENCE_BASE_URL' 'Proposer direct base URL variable is missing'
 require_contains "$proposer" 'PROPOSER_INFERENCE_MODE must be direct or cliproxy' 'Proposer inference mode is not validated'
@@ -113,6 +117,7 @@ require_contains "$proposer" 'network_args=(--network host)' 'Proposer direct en
 require_contains "$proposer" 'DEFENDER_INFERENCE_MODE' 'Proposer isolation must understand Defender direct mode'
 require_contains "$proposer" 'if [[ "$DEFENDER_INFERENCE_MODE" == cliproxy ]]' 'Proposer still unconditionally requires Defender CPA configuration'
 reject_pattern 'OPERATOR_STATE_MODE|OPERATOR_STATE_GIT_TOKEN' 'Proposer must not receive Defender persistence authority' "$proposer"
+reject_pattern 'DTF_SCHEDULES_ENABLED' 'obsolete shared schedule gate remains' "$proposer" "$defender" "$readme"
 
 require_contains "$setup_proposer" '--inference-base-url' 'Proposer setup does not expose direct inference'
 require_contains "$setup_proposer" '--use-cliproxy-gitstore' 'Proposer setup does not retain optional CLIProxy mode'
