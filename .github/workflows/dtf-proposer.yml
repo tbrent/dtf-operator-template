@@ -55,8 +55,8 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:6de9e6518b4c7c92279a8240d7cfaec334d460ce4beb2d521512ab8f57018331
-  DTF_OPERATOR_SOURCE_REVISION: 90183ea7a6fe8eabbe2e8c6414f272bc0bb3adbc
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5
+  DTF_OPERATOR_SOURCE_REVISION: fa307417a62fb6efd86d7b4cb2364e599dca2737
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
@@ -78,6 +78,7 @@ jobs:
         shell: bash
         env:
           PROPOSER_INFERENCE_MODE: ${{ vars.PROPOSER_INFERENCE_MODE }}
+          PROPOSER_INFERENCE_PROVIDER: ${{ vars.PROPOSER_INFERENCE_PROVIDER || 'openai-compatible' }}
           PROPOSER_INFERENCE_BASE_URL: ${{ vars.PROPOSER_INFERENCE_BASE_URL }}
           PROPOSER_INFERENCE_API_KEY: ${{ secrets.PROPOSER_INFERENCE_API_KEY }}
           DEFENDER_INFERENCE_MODE: ${{ vars.DEFENDER_INFERENCE_MODE }}
@@ -110,6 +111,7 @@ jobs:
           fi
           [[ "$PROPOSER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ && "$DEFENDER_SIGNER_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ ]] || { echo 'Proposer and Defender signer variables must be EVM addresses' >&2; exit 2; }
           [[ "${PROPOSER_SIGNER_ADDRESS,,}" != "${DEFENDER_SIGNER_ADDRESS,,}" ]] || { echo 'Proposer and Defender signers must differ' >&2; exit 2; }
+          [[ "$PROPOSER_INFERENCE_PROVIDER" == openai-compatible || "$PROPOSER_INFERENCE_PROVIDER" == anthropic ]] || { echo 'PROPOSER_INFERENCE_PROVIDER must be openai-compatible or anthropic' >&2; exit 2; }
 
           case "$PROPOSER_INFERENCE_MODE" in
             direct)
@@ -165,6 +167,7 @@ jobs:
           esac
 
           echo "mode=$PROPOSER_INFERENCE_MODE" >> "$GITHUB_OUTPUT"
+          echo "provider=$PROPOSER_INFERENCE_PROVIDER" >> "$GITHUB_OUTPUT"
           echo "base_url=$base_url" >> "$GITHUB_OUTPUT"
           echo "tailscale=$tailscale" >> "$GITHUB_OUTPUT"
 
@@ -173,8 +176,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6de9e6518b4c7c92279a8240d7cfaec334d460ce4beb2d521512ab8f57018331'
-          expected_revision='90183ea7a6fe8eabbe2e8c6414f272bc0bb3adbc'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5'
+          expected_revision='fa307417a62fb6efd86d7b4cb2364e599dca2737'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
@@ -199,13 +202,17 @@ jobs:
         if: ${{ steps.inference.outputs.mode == 'direct' }}
         shell: bash
         env:
+          INFERENCE_PROVIDER: ${{ steps.inference.outputs.provider }}
           INFERENCE_BASE_URL: ${{ steps.inference.outputs.base_url }}
           INFERENCE_API_KEY: ${{ secrets.PROPOSER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
-          curl -fsS -o /dev/null \
-            -H "Authorization: Bearer $INFERENCE_API_KEY" \
-            "$INFERENCE_BASE_URL/models"
+          if [[ "$INFERENCE_PROVIDER" == anthropic ]]; then
+            headers=(-H "x-api-key: $INFERENCE_API_KEY" -H 'anthropic-version: 2023-06-01')
+          else
+            headers=(-H "Authorization: Bearer $INFERENCE_API_KEY")
+          fi
+          curl -fsS -o /dev/null "${headers[@]}" "$INFERENCE_BASE_URL/models"
 
       - name: Start optional Proposer GitStore inference sidecar
         if: ${{ steps.inference.outputs.mode == 'cliproxy' }}
@@ -276,15 +283,23 @@ jobs:
         shell: bash
         env:
           MANAGEMENT_PASSWORD: ${{ secrets.PROPOSER_INFERENCE_API_KEY }}
+          INFERENCE_PROVIDER: ${{ steps.inference.outputs.provider }}
         run: |
           set -euo pipefail
           auth_files="$(curl -fsS -H "Authorization: Bearer $MANAGEMENT_PASSWORD" http://127.0.0.1:8317/v0/management/auth-files)"
           [[ "$auth_files" != *'"files":[]'* ]] || { echo 'Proposer CPA GitStore contains no OAuth records' >&2; exit 2; }
+          if [[ "$INFERENCE_PROVIDER" == anthropic ]]; then
+            headers=(-H "x-api-key: $MANAGEMENT_PASSWORD" -H 'anthropic-version: 2023-06-01')
+          else
+            headers=(-H "Authorization: Bearer $MANAGEMENT_PASSWORD")
+          fi
+          curl -fsS -o /dev/null "${headers[@]}" http://127.0.0.1:8317/v1/models
 
       - name: Run proposer
         shell: bash
         env:
           PROPOSER_INFERENCE_MODE: ${{ steps.inference.outputs.mode }}
+          INFERENCE_PROVIDER: ${{ steps.inference.outputs.provider }}
           INFERENCE_BASE_URL: ${{ steps.inference.outputs.base_url }}
           INFERENCE_API_KEY: ${{ secrets.PROPOSER_INFERENCE_API_KEY }}
           RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
@@ -327,6 +342,7 @@ jobs:
             "${network_args[@]}" \
             -e DTF_OPERATOR_CONFIG=/config/dtf-operator.yml \
             -e OUT_ROOT=/data \
+            -e INFERENCE_PROVIDER \
             -e INFERENCE_BASE_URL \
             -e INFERENCE_API_KEY \
             -e INFERENCE_AUTH_ALERT_COOLDOWN_SECONDS \

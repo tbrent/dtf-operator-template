@@ -32,7 +32,7 @@ expect_rejected() {
 TEMPLATE_ROOT="$root" "$validator" >/dev/null
 
 fixture="$(new_fixture)"
-sed -i 's/6de9e6518b4c7c92279a8240d7cfaec334d460ce4beb2d521512ab8f57018331/0000000000000000000000000000000000000000000000000000000000000000/' "$fixture/.github/workflows/dtf-proposer.yml"
+sed -i 's/bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5/0000000000000000000000000000000000000000000000000000000000000000/' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected operator_digest "$fixture"
 
 fixture="$(new_fixture)"
@@ -80,12 +80,20 @@ sed -i '/Authorization: Bearer \$INFERENCE_API_KEY/d' "$fixture/.github/workflow
 expect_rejected direct_bearer_auth "$fixture"
 
 fixture="$(new_fixture)"
+sed -i '/x-api-key: \$INFERENCE_API_KEY/d' "$fixture/.github/workflows/dtf-defender.yml"
+expect_rejected direct_anthropic_auth "$fixture"
+
+fixture="$(new_fixture)"
 sed -i '/\*) base_url="\$base_url\/v1" ;;/d' "$fixture/.github/workflows/dtf-defender.yml"
 expect_rejected direct_base_normalization "$fixture"
 
 fixture="$(new_fixture)"
 sed -i '/Authorization: Bearer \$INFERENCE_API_KEY/d' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected proposer_direct_bearer_auth "$fixture"
+
+fixture="$(new_fixture)"
+sed -i '/x-api-key: \$INFERENCE_API_KEY/d' "$fixture/.github/workflows/dtf-proposer.yml"
+expect_rejected proposer_direct_anthropic_auth "$fixture"
 
 fixture="$(new_fixture)"
 sed -i '/tailscale\/github-action@v4/d' "$fixture/.github/workflows/dtf-defender.yml"
@@ -187,6 +195,7 @@ PATH="$direct_fixture/bin:$PATH" \
     --repo owner/operator >/dev/null
 grep -Fq 'variable set PROPOSER_INFERENCE_MODE --repo owner/operator --body direct' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not set inference mode' >&2; exit 2; }
 grep -Fq 'variable set PROPOSER_INFERENCE_BASE_URL --repo owner/operator --body https://router.example/' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not preserve the configured inference URL' >&2; exit 2; }
+grep -Fq 'variable set PROPOSER_INFERENCE_PROVIDER --repo owner/operator --body openai-compatible' "$direct_fixture/gh.log" || { echo 'Proposer direct setup did not set its inference provider' >&2; exit 2; }
 if grep -Fq 'proposer-provider-secret' "$direct_fixture/gh.log"; then
   echo 'Proposer direct setup exposed its API key in gh arguments' >&2
   exit 2
@@ -215,6 +224,7 @@ PATH="$direct_fixture/bin:$PATH" \
     --repo owner/operator >/dev/null
 grep -Fq 'variable set DEFENDER_INFERENCE_MODE --repo owner/operator --body direct' "$direct_fixture/gh.log" || { echo 'direct setup did not set inference mode' >&2; exit 2; }
 grep -Fq 'variable set DEFENDER_INFERENCE_BASE_URL --repo owner/operator --body https://router.example/' "$direct_fixture/gh.log" || { echo 'direct setup did not preserve the configured inference URL' >&2; exit 2; }
+grep -Fq 'variable set DEFENDER_INFERENCE_PROVIDER --repo owner/operator --body openai-compatible' "$direct_fixture/gh.log" || { echo 'Defender direct setup did not set its inference provider' >&2; exit 2; }
 if grep -Fq 'provider-secret' "$direct_fixture/gh.log"; then
   echo 'direct setup exposed its API key in gh arguments' >&2
   exit 2
@@ -229,7 +239,76 @@ if RESEND_API_KEY=resend-secret DEFENDER_INFERENCE_API_KEY=provider-secret GH_LO
   echo 'direct setup accepted an insecure public inference URL' >&2
   exit 2
 fi
+
+: > "$direct_fixture/gh.log"
+RESEND_API_KEY=resend-secret \
+DEFENDER_INFERENCE_API_KEY=anthropic-secret \
+GH_LOG="$direct_fixture/gh.log" \
+PATH="$direct_fixture/bin:$PATH" \
+  "$root/scripts/setup-github-defender" \
+    --email operator@example.com \
+    --inference-base-url https://api.anthropic.com/v1 \
+    --keystore "$direct_fixture/keystore" \
+    --keystore-password-file "$direct_fixture/password" \
+    --repo owner/operator >/dev/null
+grep -Fq 'variable set DEFENDER_INFERENCE_PROVIDER --repo owner/operator --body anthropic' "$direct_fixture/gh.log" || { echo 'Defender setup did not auto-detect direct Anthropic inference' >&2; exit 2; }
 rm -rf "$direct_fixture"
 echo 'setup_verified=defender_direct_inference'
+
+oauth_fixture="$(mktemp -d "${TMPDIR:-/tmp}/claude-oauth-seed.XXXXXX")"
+mkdir -p "$oauth_fixture/bin" "$oauth_fixture/auth"
+printf '%s\n' '{"type":"claude","email":"operator@example.com","access_token":"secret","refresh_token":"secret"}' > "$oauth_fixture/auth/claude.json"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "%s\n" "$*" >> "$DOCKER_LOG"' \
+  'if [[ "$1" == inspect ]]; then printf "%s\n" "running (exit 0)"; fi' \
+  'exit 0' > "$oauth_fixture/bin/docker"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'method=GET' \
+  'url=""' \
+  'while [[ $# -gt 0 ]]; do' \
+  '  case "$1" in' \
+  '    -X) method="${2:-}"; shift 2 ;;' \
+  '    http://*|https://*) url="$1"; shift ;;' \
+  '    *) shift ;;' \
+  '  esac' \
+  'done' \
+  'if [[ "$method" == GET && "$url" == */v0/management/auth-files ]]; then' \
+  '  count=0; [[ ! -f "$CURL_COUNT" ]] || count="$(<"$CURL_COUNT")"' \
+  '  count=$((count + 1)); printf "%s\n" "$count" > "$CURL_COUNT"' \
+  '  if [[ "$count" == 1 ]]; then printf "%s\n" "{\"files\":[]}"; else printf "%s\n" "{\"files\":[{\"name\":\"claude.json\"}]}"; fi' \
+  'else' \
+  '  printf "%s\n" "{}"' \
+  'fi' > "$oauth_fixture/bin/curl"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "%s\n" "$*" >> "$GH_LOG"' \
+  'if [[ "$1" == secret && "$2" == set ]]; then cat >/dev/null; fi' \
+  'exit 0' > "$oauth_fixture/bin/gh"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$oauth_fixture/bin/sleep"
+chmod +x "$oauth_fixture/bin/docker" "$oauth_fixture/bin/curl" "$oauth_fixture/bin/gh" "$oauth_fixture/bin/sleep"
+: > "$oauth_fixture/docker.log"
+: > "$oauth_fixture/gh.log"
+GITSTORE_GIT_TOKEN=gitstore-secret \
+DOCKER_LOG="$oauth_fixture/docker.log" \
+CURL_COUNT="$oauth_fixture/curl-count" \
+GH_LOG="$oauth_fixture/gh.log" \
+PATH="$oauth_fixture/bin:$PATH" \
+  "$root/scripts/seed-cliproxy-gitstore" \
+    --role defender \
+    --oauth-identity claude-defender \
+    --cliproxy-auth-dir "$oauth_fixture/auth" \
+    --git-url https://github.com/owner/claude-gitstore.git \
+    --git-branch oauth \
+    --repo owner/operator >/dev/null
+grep -Fq 'variable set DEFENDER_INFERENCE_MODE --repo owner/operator --body cliproxy' "$oauth_fixture/gh.log" || { echo 'Claude OAuth seeding did not select CLIProxy mode' >&2; exit 2; }
+grep -Fq 'variable set DEFENDER_INFERENCE_PROVIDER --repo owner/operator --body anthropic' "$oauth_fixture/gh.log" || { echo 'Claude OAuth seeding did not select Anthropic inference' >&2; exit 2; }
+if grep -Fq 'gitstore-secret' "$oauth_fixture/gh.log"; then
+  echo 'Claude OAuth seeding exposed its GitStore token in gh arguments' >&2
+  exit 2
+fi
+rm -rf "$oauth_fixture"
+echo 'setup_verified=claude_oauth_gitstore'
 
 echo 'authoritative template regressions passed'

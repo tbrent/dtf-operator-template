@@ -8,9 +8,9 @@ Usage: RESEND_API_KEY=<key> DEFENDER_INFERENCE_API_KEY=<provider-key> \
   --inference-base-url <https://host> [options]
 
 Uploads Defender inference, email, signer secrets, account name, and the signer
-address to a private operator fork. Direct OpenAI-compatible inference is the
-recommended path and needs no GitStore. Use --use-cliproxy-gitstore only for an
-existing CLIProxy OAuth deployment.
+address to an operator fork. Direct OpenAI-compatible or Anthropic inference
+needs no GitStore. Use --use-cliproxy-gitstore only for a subscription OAuth
+deployment hosted by CLIProxyAPI.
 
 Required:
   --email <address>
@@ -19,7 +19,8 @@ Required:
 
 Options:
   --from-email <address>           Optional sender; defaults in runtime when unset
-  --inference-base-url <url>       Direct HTTPS OpenAI-compatible service URL
+  --inference-base-url <url>       Direct HTTPS inference service URL
+  --inference-provider <provider>  openai-compatible or anthropic
   --use-cliproxy-gitstore          Retain the optional local CLIProxy GitStore mode
   --init-keystore-password         Create password file if missing
   --force-keystore-password        Replace generated password file before creating a new keystore
@@ -97,6 +98,7 @@ get_variable() {
 email=""
 from_email="${DEFENDER_EMAIL_FROM:-}"
 inference_base_url=""
+inference_provider=""
 use_cliproxy_gitstore=0
 keystore=""
 keystore_password_file=""
@@ -112,6 +114,7 @@ while [[ $# -gt 0 ]]; do
     --email) email="${2:-}"; shift 2 ;;
     --from-email) from_email="${2:-}"; shift 2 ;;
     --inference-base-url) inference_base_url="${2:-}"; shift 2 ;;
+    --inference-provider) inference_provider="${2:-}"; shift 2 ;;
     --use-cliproxy-gitstore) use_cliproxy_gitstore=1; shift ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
@@ -139,6 +142,15 @@ done
 
 require_command cast
 require_command gh
+
+if [[ -z "$inference_provider" ]]; then
+  if [[ "$inference_base_url" =~ ^https://api\.anthropic\.com(/|$) ]]; then
+    inference_provider=anthropic
+  else
+    inference_provider=openai-compatible
+  fi
+fi
+[[ "$inference_provider" == openai-compatible || "$inference_provider" == anthropic ]] || die "--inference-provider must be openai-compatible or anthropic"
 
 if [[ -n "$inference_base_url" ]]; then
   [[ "$inference_base_url" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || die "--inference-base-url must be a single-line https URL"
@@ -206,6 +218,7 @@ fi
 echo "Setting dedicated Defender GitHub configuration${repo:+ for $repo}"
 set_secret DEFENDER_INFERENCE_API_KEY "$inference_api_key"
 set_variable DEFENDER_INFERENCE_MODE "$inference_mode"
+set_variable DEFENDER_INFERENCE_PROVIDER "$inference_provider"
 if [[ "$inference_mode" == direct ]]; then
   set_variable DEFENDER_INFERENCE_BASE_URL "$inference_base_url"
 fi

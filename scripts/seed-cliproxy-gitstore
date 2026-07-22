@@ -7,7 +7,7 @@ Usage: GITSTORE_GIT_TOKEN=<scoped-write-token> scripts/seed-cliproxy-gitstore \
   --role <proposer|defender> --oauth-identity <label> \
   --git-url <private-repo-url> --git-branch <branch> [options]
 
-Imports one CLIProxy OAuth login into an empty, dedicated CPA GitStore branch,
+Imports one Codex or Claude CLIProxy OAuth login into an empty, dedicated CPA GitStore branch,
 proves that the records survive a clean clone, and configures the matching
 GitHub Secret and Variables. Either role uses it only when its corresponding
 `*_INFERENCE_MODE=cliproxy`. Source OAuth files and any separately retained
@@ -123,17 +123,23 @@ if [[ "$other_mode" == cliproxy && -n "$other_identity" && "${oauth_identity,,}"
 fi
 
 oauth_file=""
+oauth_provider=""
 oauth_identity_record=""
 oauth_count=0
 while IFS= read -r -d '' file; do
   oauth_count=$((oauth_count + 1))
-  [[ "$oauth_count" == 1 ]] || die "exactly one Codex OAuth JSON record is required per role"
+  [[ "$oauth_count" == 1 ]] || die "exactly one Codex or Claude OAuth JSON record is required per role"
   name="$(basename "$file")"
   [[ "$name" =~ ^[A-Za-z0-9._-]+\.json$ ]] || die "unsafe OAuth filename: $name"
-  oauth_identity_record="$(jq -er 'select(.type == "codex") | select((.account_id | type) == "string" and (.account_id | length) > 0) | select((.email | type) == "string" and (.email | length) > 0) | [.account_id, (.email | ascii_downcase)] | @tsv' "$file")" || die "OAuth JSON must be one Codex record with account_id and email"
+  oauth_provider="$(jq -er '.type | select(. == "codex" or . == "claude")' "$file")" || die "OAuth JSON type must be codex or claude"
+  if [[ "$oauth_provider" == codex ]]; then
+    oauth_identity_record="$(jq -er 'select((.account_id | type) == "string" and (.account_id | length) > 0) | select((.email | type) == "string" and (.email | length) > 0) | [.account_id, (.email | ascii_downcase)] | @tsv' "$file")" || die "Codex OAuth JSON must contain account_id and email"
+  else
+    oauth_identity_record="$(jq -er 'select((.email | type) == "string" and (.email | length) > 0) | ["claude", (.email | ascii_downcase)] | @tsv' "$file")" || die "Claude OAuth JSON must contain email"
+  fi
   oauth_file="$file"
 done < <(find "$auth_dir" -maxdepth 1 -type f -name '*.json' -print0)
-(( oauth_count == 1 )) || die "exactly one Codex OAuth JSON record is required per role"
+(( oauth_count == 1 )) || die "exactly one Codex or Claude OAuth JSON record is required per role"
 oauth_fingerprint="$(printf '%s' "$oauth_identity_record" | sha256sum | awk '{print $1}')"
 unset oauth_identity_record
 [[ "$oauth_fingerprint" =~ ^[0-9a-f]{64}$ ]] || die "failed to derive OAuth identity fingerprint"
@@ -236,13 +242,24 @@ set_variable CPA_OAUTH_ISOLATION separate-gitstores-and-logins
 unset oauth_fingerprint
 
 echo "gitstore_role=$role"
+echo "gitstore_oauth_provider=$oauth_provider"
 echo "gitstore_seeded_auth_records=$oauth_count"
 echo "gitstore_restore_verified=1"
 echo "source_oauth_files_preserved=1"
 if [[ "$role" == proposer ]]; then
   set_variable PROPOSER_INFERENCE_MODE cliproxy
+  if [[ "$oauth_provider" == claude ]]; then
+    set_variable PROPOSER_INFERENCE_PROVIDER anthropic
+  else
+    set_variable PROPOSER_INFERENCE_PROVIDER openai-compatible
+  fi
   echo "next_step=configure Defender direct inference or seed its optional separate CPA GitStore"
 else
   set_variable DEFENDER_INFERENCE_MODE cliproxy
+  if [[ "$oauth_provider" == claude ]]; then
+    set_variable DEFENDER_INFERENCE_PROVIDER anthropic
+  else
+    set_variable DEFENDER_INFERENCE_PROVIDER openai-compatible
+  fi
   echo "next_step=run one manual Defender dispatch to initialize and save the Actions cache journal"
 fi
