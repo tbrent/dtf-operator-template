@@ -6,17 +6,18 @@ usage() {
 Usage: PROPOSER_INFERENCE_API_KEY=<provider-key> \
   scripts/setup-github-proposer --inference-base-url <https://host> [options]
 
-Uploads Proposer inference and signer configuration to a private operator fork.
-Direct OpenAI-compatible inference is the recommended path and needs no
-GitStore. Use --use-cliproxy-gitstore only for an existing CLIProxy OAuth
-deployment.
+Uploads Proposer inference and signer configuration to an operator fork. Direct
+OpenAI-compatible or Anthropic inference needs no GitStore. Use
+--use-cliproxy-gitstore only for a subscription OAuth deployment hosted by
+CLIProxyAPI.
 
 Required:
   --keystore <path> or --generate-keystore-dir <dir>
   --keystore-password-file <path>
 
 Options:
-  --inference-base-url <url>       Direct HTTPS OpenAI-compatible service URL
+  --inference-base-url <url>       Direct HTTPS inference service URL
+  --inference-provider <provider>  openai-compatible or anthropic
   --use-cliproxy-gitstore          Retain the optional local CLIProxy GitStore mode
   --init-keystore-password         Create password file if missing
   --force-keystore-password        Replace generated password file before creating a new keystore
@@ -93,6 +94,7 @@ get_variable() {
 
 keystore=""
 inference_base_url=""
+inference_provider=""
 use_cliproxy_gitstore=0
 keystore_password_file=""
 init_keystore_password=0
@@ -105,6 +107,7 @@ repo=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --inference-base-url) inference_base_url="${2:-}"; shift 2 ;;
+    --inference-provider) inference_provider="${2:-}"; shift 2 ;;
     --use-cliproxy-gitstore) use_cliproxy_gitstore=1; shift ;;
     --keystore) keystore="${2:-}"; shift 2 ;;
     --keystore-password-file) keystore_password_file="${2:-}"; shift 2 ;;
@@ -130,6 +133,15 @@ done
 
 require_command cast
 require_command gh
+
+if [[ -z "$inference_provider" ]]; then
+  if [[ "$inference_base_url" =~ ^https://api\.anthropic\.com(/|$) ]]; then
+    inference_provider=anthropic
+  else
+    inference_provider=openai-compatible
+  fi
+fi
+[[ "$inference_provider" == openai-compatible || "$inference_provider" == anthropic ]] || die "--inference-provider must be openai-compatible or anthropic"
 
 if [[ -n "$inference_base_url" ]]; then
   [[ "$inference_base_url" =~ ^https://[^[:space:]/]+(/[^[:space:]]*)?$ ]] || die "--inference-base-url must be a single-line https URL"
@@ -201,6 +213,7 @@ fi
 echo "Setting dedicated Proposer GitHub configuration${repo:+ for $repo}"
 set_secret PROPOSER_INFERENCE_API_KEY "$inference_api_key"
 set_variable PROPOSER_INFERENCE_MODE "$inference_mode"
+set_variable PROPOSER_INFERENCE_PROVIDER "$inference_provider"
 if [[ "$inference_mode" == direct ]]; then
   set_variable PROPOSER_INFERENCE_BASE_URL "$inference_base_url"
 fi
