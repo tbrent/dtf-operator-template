@@ -129,6 +129,7 @@ require_contains "$proposer" 'MODE_INPUT: dry-run' 'This deployment must hard-co
 reject_pattern 'live-one-cycle|observe-only|confirm_live_broadcast|confirm_bypass_proposer_defender_check' 'This deployment must not expose non-dry-run Proposer modes' "$proposer"
 reject_pattern 'secrets\.(PROPOSER_KEYSTORE_JSON_B64|PROPOSER_KEYSTORE_PASSWORD|PROPOSER_FOUNDRY_ACCOUNT|AUCTION_LAUNCHER_)|CONFIRM_LIVE_BROADCAST_INPUT|MIN_SIGNER_BALANCE_WEI' 'Dry-run Proposer workflow must not receive transaction signing material' "$proposer"
 reject_pattern 'OPERATOR_STATE_MODE|OPERATOR_STATE_GIT_TOKEN' 'Proposer must not receive Defender persistence authority' "$proposer"
+reject_pattern 'rpc_url_override|RPC_URL_OVERRIDE_INPUT' 'Public workflow dispatch inputs must not carry RPC URLs' "$proposer"
 reject_pattern 'DTF_SCHEDULES_ENABLED' 'obsolete shared schedule gate remains' "$proposer" "$defender" "$readme"
 
 require_contains "$setup_proposer" '--inference-base-url' 'Proposer setup does not expose direct inference'
@@ -159,6 +160,7 @@ reject_pattern 'Defender CPA and journal branches must differ|initialize the Def
 
 require_contains "$readme" 'When both roles use direct inference, no CPA/GitStore' 'README does not document the zero-GitStore path'
 require_contains "$readme" 'Public runs do not upload Proposer artifacts' 'README does not document public artifact suppression'
+require_contains "$readme" 'public repository, so treat that operational metadata as potentially readable' 'README does not disclose public Defender cache metadata'
 require_contains "$readme" 'PROPOSER_INFERENCE_MODE=direct' 'README does not document Proposer direct mode'
 require_contains "$readme" 'DEFENDER_INFERENCE_MODE=direct' 'README does not document Defender direct mode'
 require_contains "$readme" 'Chat Completions with Bearer authentication' 'README does not document OpenAI-compatible Bearer authentication'

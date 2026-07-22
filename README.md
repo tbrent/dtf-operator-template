@@ -373,7 +373,9 @@ replacement chain finalizes or reverts.
   Resend credentials, or plaintext signed transactions.
 - Keep direct inference URLs credential-free; authentication belongs in the
   separate `PROPOSER_INFERENCE_API_KEY` and `DEFENDER_INFERENCE_API_KEY` Secrets.
-- Treat the Actions cache journal as private operational state. Signed veto
-  bytes are encrypted, but cache access still grants operational metadata.
+- Signed veto bytes in the Actions cache journal are encrypted, but AI reviews,
+  diagnostics, notification state, and proposal obligations are not. This is a
+  public repository, so treat that operational metadata as potentially readable
+  by repository readers and pull-request workflows.
 - Do not delete retained OAuth archives merely because either role moved to direct
   inference; archive deletion is a separate operator decision.

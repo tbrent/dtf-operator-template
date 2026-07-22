@@ -20,11 +20,6 @@ on:
         required: false
         default: ''
         type: string
-      rpc_url_override:
-        description: Optional RPC URL for this dispatch only
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
@@ -294,7 +289,6 @@ jobs:
           RUN_HOURS_INPUT: ${{ inputs.run_hours }}
           MIN_OPEN_AUCTION_VALUE_USD_INPUT: ${{ inputs.min_open_auction_value_usd }}
           COWBOT_MIN_VALUE_USD_INPUT: ${{ inputs.cowbot_min_value_usd }}
-          RPC_URL_OVERRIDE_INPUT: ${{ inputs.rpc_url_override }}
         run: |
           set -euo pipefail
           mkdir -p proposer-data
@@ -326,7 +320,6 @@ jobs:
             -e RUN_HOURS_INPUT \
             -e MIN_OPEN_AUCTION_VALUE_USD_INPUT \
             -e COWBOT_MIN_VALUE_USD_INPUT \
-            -e RPC_URL_OVERRIDE_INPUT \
             -e GITHUB_SERVER_URL \
             -e GITHUB_REPOSITORY \
             -e GITHUB_EVENT_NAME \
