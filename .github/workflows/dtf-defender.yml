@@ -45,7 +45,7 @@ jobs:
         env:
           DEFENDER_INFERENCE_MODE: ${{ vars.DEFENDER_INFERENCE_MODE }}
           DEFENDER_INFERENCE_BASE_URL: ${{ vars.DEFENDER_INFERENCE_BASE_URL }}
-          DEFENDER_INFERENCE_API_KEY: ${{ secrets.CLIPROXY_BEARER_TOKEN || secrets.DEFENDER_INFERENCE_API_KEY }}
+          DEFENDER_INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
           PROPOSER_INFERENCE_MODE: ${{ vars.PROPOSER_INFERENCE_MODE }}
           CPA_PROPOSER_GITSTORE_URL: ${{ vars.CPA_PROPOSER_GITSTORE_URL }}
           CPA_PROPOSER_GITSTORE_BRANCH: ${{ vars.CPA_PROPOSER_GITSTORE_BRANCH }}
@@ -199,7 +199,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: ${{ vars.TAILSCALE_TAGS || 'tag:ci' }}
+          tags: ${{ vars.TAILSCALE_TAGS || 'tag:github-actions' }}
           use-cache: 'false'
 
       - name: Verify direct inference endpoint
@@ -207,7 +207,7 @@ jobs:
         shell: bash
         env:
           INFERENCE_BASE_URL: ${{ steps.inference.outputs.base_url }}
-          INFERENCE_API_KEY: ${{ secrets.CLIPROXY_BEARER_TOKEN || secrets.DEFENDER_INFERENCE_API_KEY }}
+          INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
         run: |
           set -euo pipefail
           curl -fsS -o /dev/null \
@@ -291,7 +291,7 @@ jobs:
         env:
           DEFENDER_INFERENCE_MODE: ${{ steps.inference.outputs.mode }}
           INFERENCE_BASE_URL: ${{ steps.inference.outputs.base_url }}
-          INFERENCE_API_KEY: ${{ secrets.CLIPROXY_BEARER_TOKEN || secrets.DEFENDER_INFERENCE_API_KEY }}
+          INFERENCE_API_KEY: ${{ secrets.DEFENDER_INFERENCE_API_KEY }}
           RPC_URL: ${{ secrets.RPC_URL || vars.RPC_URL }}
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || vars.MAINNET_RPC_URL }}
           BSC_RPC_URL: ${{ secrets.BSC_RPC_URL || vars.BSC_RPC_URL }}
