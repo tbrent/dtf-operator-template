@@ -7,12 +7,11 @@ Usage: GITSTORE_GIT_TOKEN=<scoped-write-token> scripts/seed-cliproxy-gitstore \
   --role <proposer|defender> --oauth-identity <label> \
   --git-url <private-repo-url> --git-branch <branch> [options]
 
-Imports one CLIProxy OAuth login into an empty, dedicated CPA GitStore branch, proves
-that the records survive a clean clone, and configures the matching GitHub
-Secret and Variables. Run it twice with different OAuth logins and different
-private repositories. The Defender repository later also holds the credential-
-free journal on a different branch. Source OAuth files and any separately
-retained archives are left untouched.
+Imports one CLIProxy OAuth login into an empty, dedicated CPA GitStore branch,
+proves that the records survive a clean clone, and configures the matching
+GitHub Secret and Variables. Either role uses it only when its corresponding
+`*_INFERENCE_MODE=cliproxy`. Source OAuth files and any separately retained
+archives are left untouched.
 
 Options:
   --role <role>                   proposer or defender
@@ -109,23 +108,18 @@ fi
 
 other_url="$(get_variable "${other_prefix}_GITSTORE_URL")"
 other_identity="$(get_variable "${other_prefix}_OAUTH_IDENTITY")"
+other_mode="$(get_variable "${other_prefix#CPA_}_INFERENCE_MODE")"
 normalized_git_url="${git_url,,}"
 normalized_git_url="${normalized_git_url%/}"
 normalized_git_url="${normalized_git_url%.git}"
 normalized_other_url="${other_url,,}"
 normalized_other_url="${normalized_other_url%/}"
 normalized_other_url="${normalized_other_url%.git}"
-if [[ -n "$normalized_other_url" && "$normalized_git_url" == "$normalized_other_url" ]]; then
+if [[ "$other_mode" == cliproxy && -n "$normalized_other_url" && "$normalized_git_url" == "$normalized_other_url" ]]; then
   die "Proposer and Defender CPA GitStores must use different repositories"
 fi
-if [[ -n "$other_identity" && "${oauth_identity,,}" == "${other_identity,,}" ]]; then
+if [[ "$other_mode" == cliproxy && -n "$other_identity" && "${oauth_identity,,}" == "${other_identity,,}" ]]; then
   die "Proposer and Defender CPA OAuth identity labels must differ"
-fi
-if [[ "$role" == defender ]]; then
-  journal_branch="$(get_variable OPERATOR_STATE_GIT_BRANCH)"
-  if [[ -n "$journal_branch" && "$git_branch" == "$journal_branch" ]]; then
-    die "Defender CPA and journal branches must differ"
-  fi
 fi
 
 oauth_file=""
@@ -246,7 +240,9 @@ echo "gitstore_seeded_auth_records=$oauth_count"
 echo "gitstore_restore_verified=1"
 echo "source_oauth_files_preserved=1"
 if [[ "$role" == proposer ]]; then
-  echo "next_step=seed Defender with a different OAuth login in a different private repository"
+  set_variable PROPOSER_INFERENCE_MODE cliproxy
+  echo "next_step=configure Defender direct inference or seed its optional separate CPA GitStore"
 else
-  echo "next_step=initialize the Defender journal on a different branch of this Defender repository"
+  set_variable DEFENDER_INFERENCE_MODE cliproxy
+  echo "next_step=run one manual Defender dispatch to initialize and save the Actions cache journal"
 fi
