@@ -32,7 +32,7 @@ expect_rejected() {
 TEMPLATE_ROOT="$root" "$validator" >/dev/null
 
 fixture="$(new_fixture)"
-sed -i 's/bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5/0000000000000000000000000000000000000000000000000000000000000000/' "$fixture/.github/workflows/dtf-proposer.yml"
+sed -i 's/5100802631d05a51bed76e59ab83414e33adcc313c9c79b6fb9be949244ce96a/0000000000000000000000000000000000000000000000000000000000000000/' "$fixture/.github/workflows/dtf-proposer.yml"
 expect_rejected operator_digest "$fixture"
 
 fixture="$(new_fixture)"

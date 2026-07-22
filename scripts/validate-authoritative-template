@@ -11,8 +11,8 @@ setup_proposer="$root/scripts/setup-github-proposer"
 setup_defender="$root/scripts/setup-github-defender"
 removed_initializer="$root/scripts/initialize-defender-journal"
 
-expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:bcbc1a8f9b12c4155978e1cf2ab018bd571915c79edaf2aadf303a0550445ca5'
-expected_revision='fa307417a62fb6efd86d7b4cb2364e599dca2737'
+expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:5100802631d05a51bed76e59ab83414e33adcc313c9c79b6fb9be949244ce96a'
+expected_revision='cad0a840f7f99c41a7207471a0088c59063c8d48'
 
 fail() {
   echo "authoritative template validation failed: $*" >&2
