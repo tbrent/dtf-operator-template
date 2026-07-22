@@ -4,20 +4,11 @@ Fork this repository into a private GitHub repository to operate a DTF/Folio.
 The fork owns public operator configuration and GitHub Actions orchestration.
 Credentials remain in GitHub Secrets or local keystores.
 
-## Runtime publication gate
+## Runtime image
 
-This development branch requires a newly published `dtf-operator` image with
-`cache-authoritative` Defender support. Both workflows intentionally contain:
-
-```text
-ghcr.io/reserve-protocol/dtf-operator@sha256:RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION
-RUNTIME_SOURCE_REVISION_PENDING_PUBLICATION
-```
-
-The workflows fail before pulling an image while either placeholder remains.
-After the runtime change is merged and published, replace both placeholders in
-both workflows and in the template validators with the immutable image digest
-and its exact `org.opencontainers.image.revision` label.
+Both workflows pin the cache-authoritative `dtf-operator` runtime by immutable
+GHCR digest and verify its exact `org.opencontainers.image.revision` label
+before execution.
 
 ## Production model
 

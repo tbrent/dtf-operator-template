@@ -21,8 +21,8 @@ permissions:
   packages: read
 
 env:
-  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION
-  DTF_OPERATOR_SOURCE_REVISION: RUNTIME_SOURCE_REVISION_PENDING_PUBLICATION
+  DTF_OPERATOR_IMAGE: ghcr.io/reserve-protocol/dtf-operator@sha256:6de9e6518b4c7c92279a8240d7cfaec334d460ce4beb2d521512ab8f57018331
+  DTF_OPERATOR_SOURCE_REVISION: 90183ea7a6fe8eabbe2e8c6414f272bc0bb3adbc
   CLI_PROXY_IMAGE: eceasy/cli-proxy-api@sha256:2d402a3edfbfa0612d7694345f7a05008fe8ce1915fde00ec9adb82afeb370c9
 
 jobs:
@@ -149,16 +149,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION'
-          expected_revision='RUNTIME_SOURCE_REVISION_PENDING_PUBLICATION'
+          expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6de9e6518b4c7c92279a8240d7cfaec334d460ce4beb2d521512ab8f57018331'
+          expected_revision='90183ea7a6fe8eabbe2e8c6414f272bc0bb3adbc'
           [[ "$DTF_OPERATOR_IMAGE" == "$expected_image" ]] || { echo 'unexpected operator image' >&2; exit 2; }
           [[ "$DTF_OPERATOR_SOURCE_REVISION" == "$expected_revision" ]] || { echo 'unexpected operator source revision' >&2; exit 2; }
-          case "$expected_image:$expected_revision" in
-            *PENDING_PUBLICATION*)
-              echo 'Publish the cache-authoritative runtime image, then replace both runtime publication placeholders before enabling this workflow.' >&2
-              exit 2
-              ;;
-          esac
           docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"
           platform="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{.Os}}/{{.Architecture}}')"
           revision="$(docker image inspect "$DTF_OPERATOR_IMAGE" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"

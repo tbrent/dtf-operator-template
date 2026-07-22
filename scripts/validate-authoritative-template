@@ -11,8 +11,8 @@ setup_proposer="$root/scripts/setup-github-proposer"
 setup_defender="$root/scripts/setup-github-defender"
 removed_initializer="$root/scripts/initialize-defender-journal"
 
-expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION'
-expected_revision='RUNTIME_SOURCE_REVISION_PENDING_PUBLICATION'
+expected_image='ghcr.io/reserve-protocol/dtf-operator@sha256:6de9e6518b4c7c92279a8240d7cfaec334d460ce4beb2d521512ab8f57018331'
+expected_revision='90183ea7a6fe8eabbe2e8c6414f272bc0bb3adbc'
 
 fail() {
   echo "authoritative template validation failed: $*" >&2
@@ -47,11 +47,10 @@ done
 [[ ! -e "$removed_initializer" ]] || fail 'obsolete Git journal initializer must be removed'
 
 for workflow in "$proposer" "$defender"; do
-  require_contains "$workflow" "DTF_OPERATOR_IMAGE: $expected_image" "missing runtime publication placeholder in $workflow"
-  require_contains "$workflow" "DTF_OPERATOR_SOURCE_REVISION: $expected_revision" "missing source publication placeholder in $workflow"
-  require_contains "$workflow" "expected_image='$expected_image'" "workflow does not assert its exact image placeholder"
-  require_contains "$workflow" "expected_revision='$expected_revision'" "workflow does not assert its exact revision placeholder"
-  require_contains "$workflow" 'Publish the cache-authoritative runtime image' "workflow does not fail clearly before runtime publication"
+  require_contains "$workflow" "DTF_OPERATOR_IMAGE: $expected_image" "workflow does not pin the expected runtime image in $workflow"
+  require_contains "$workflow" "DTF_OPERATOR_SOURCE_REVISION: $expected_revision" "workflow does not pin the expected source revision in $workflow"
+  require_contains "$workflow" "expected_image='$expected_image'" "workflow does not assert its exact image"
+  require_contains "$workflow" "expected_revision='$expected_revision'" "workflow does not assert its exact revision"
   require_contains "$workflow" 'docker pull --platform linux/amd64 "$DTF_OPERATOR_IMAGE"' "operator pull must select linux/amd64 in $workflow"
   require_contains "$workflow" 'org.opencontainers.image.revision' "operator OCI revision is not asserted in $workflow"
   require_contains "$workflow" "vars.DTF_SCHEDULES_ENABLED == 'true'" "scheduled runs are not repository-variable gated in $workflow"
@@ -139,7 +138,7 @@ require_contains "$readme" 'router-for-me/CLIProxyAPI' 'README does not document
 require_contains "$readme" 'TS_OAUTH_CLIENT_ID' 'README does not document optional Tailscale credentials'
 require_contains "$readme" 'Operational limitation: runner cancellation' 'README does not disclose cache loss semantics'
 require_contains "$readme" 'Existing Git journal migration' 'README does not document legacy journal import'
-require_contains "$readme" 'RUNTIME_IMAGE_DIGEST_PENDING_PUBLICATION' 'README does not disclose the publication gate'
+require_contains "$readme" 'pin the cache-authoritative `dtf-operator` runtime by immutable' 'README does not document the immutable runtime pin'
 reject_pattern 'Proposer (requires|continues to use).*GitStore|Proposer \| Existing dedicated CLIProxy' 'README still claims Proposer requires GitStore' "$readme"
 
 require_contains "$config" 'maxVetoDelayPlusPeriod: 1209600s' 'Defender maximum must remain exactly 1209600 seconds'
