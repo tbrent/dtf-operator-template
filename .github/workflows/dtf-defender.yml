@@ -2,7 +2,7 @@ name: DTF Defender
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
       proposal_log_chunk_blocks:

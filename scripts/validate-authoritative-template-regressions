@@ -140,7 +140,7 @@ sed -i 's/maxVetoDelayPlusPeriod: 1209600s/maxVetoDelayPlusPeriod: 1209601s/' "$
 expect_rejected veto_maximum "$fixture"
 
 fixture="$(new_fixture)"
-sed -i 's/frequencyMinutes: 15/frequencyMinutes: 30/' "$fixture/.github/dtf-operator.yml"
+sed -i 's/frequencyMinutes: 60/frequencyMinutes: 30/' "$fixture/.github/dtf-operator.yml"
 expect_rejected defender_frequency "$fixture"
 
 fixture="$(new_fixture)"
